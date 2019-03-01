@@ -1,0 +1,31 @@
+import argparse
+import rethinkdb as r
+import constants.db as db_const
+from utils.create import create
+from utils.drop import drop
+from utils.flush import flush
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Run scripts for managing the rethinkdb database')
+    parser.add_argument('-r', '--run', help='The method to run', default="")
+    parser.add_argument('-l', '--host', help='The rethinkdb host to connect to', default=db_const.DB_HOST)
+    parser.add_argument('-p', '--port', help='The rethinkdb port to connect to', default=db_const.DB_PORT)
+    parser.add_argument('-d', '--db', help='The rethinkdb database to connect to', default=db_const.DB_NAME)
+    parser.add_argument('-c', '--cutoff', help='The cutoff period for old records', default=db_const.CUTOFF_PERIOD)
+
+    args = parser.parse_args()
+
+    conn = r.connect(
+        host=args.host,
+        port=args.port,
+        db=args.db
+    )
+
+    if args.run=="flush":
+        flush(conn, args.cutoff)
+    elif args.run=="drop":
+        drop(conn, args.db)
+    elif args.run=="create":
+        create(conn, args.db)
+    else:
+        print("Please select a method to run")
