@@ -18,12 +18,17 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+# Add the ptdraft folder path to the sys.path list
+import os,sys,inspect
+currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+parentdir = os.path.dirname(currentdir)
+sys.path.insert(0,parentdir) 
+
 import collections
 import contextlib
 import functools
-import os
-import sys
 
+from agent.agent import Agent
 import client.wrappers as wrappers
 import numpy as np
 import py_process
@@ -59,27 +64,40 @@ flags.DEFINE_integer('total_environment_frames', int(1e9),
                      'Total environment frames to train for.')
 flags.DEFINE_integer('num_actors', 4, 'Number of actors.')
 flags.DEFINE_integer('batch_size', 2, 'Batch size for training.')
-flags.DEFINE_integer('unroll_length', 100, 'Unroll length in agent steps.')
-flags.DEFINE_integer('num_action_repeats', 4, 'Number of action repeats.')
-flags.DEFINE_integer('seed', 1, 'Random seed.')
+
+# Environment
+flags.DEFINE_enum('quote_asset', 'BTC', ['BTC', 'BNB', 'ETH', 'USDT'], # todo randomize
+                  'The default quote asset that the environment should use')
+flags.DEFINE_float('commission', 0.00075, 'Trading consumption') # todo randomize
+flags.DEFINE_integer('feature_num', 3, 'Number of features')
+flags.DEFINE_integer('asset_num', 50, 'Number of assets to actively trade')
+flags.DEFINE_integer('window_size', 90, 'Size of the historical window')
+flags.DEFINE_integer('selection_period', 90, 'Period over which assets should be selected')
+flags.DEFINE_integer('unroll_length', 100, 'Number of steps an agent takes per episode')
+flags.DEFINE_enum('selection_method', 's2vol', ['s2', 's2vol', 'random', 'most_traded'], # todo randomize
+                  'The method to use to select a set of assets')
+flags.DEFINE_enum(
+    'reward_method',
+    'profit',
+    [
+        'profit',
+        'portfolio_value',
+        'sharpe_ratio',
+        'drawdown'
+    ], 
+    'The reward method to use'
+)
+flags.DEFINE_float('balance_init', 1.0, 'The initial amout of quote asset to start with') # 
+flags.DEFINE_enum('env_type', 'sandbox', ['sandbox', 'live'], # todo randomize
+                  'The type of environment to use')
 
 # Loss settings.
+# todo change to adam
 flags.DEFINE_float('entropy_cost', 0.00025, 'Entropy cost/multiplier.')
 flags.DEFINE_float('baseline_cost', .5, 'Baseline cost/multiplier.')
 flags.DEFINE_float('discounting', .99, 'Discounting factor.')
 flags.DEFINE_enum('reward_clipping', 'abs_one', ['abs_one', 'soft_asymmetric'],
                   'Reward clipping.')
-
-# Environment settings.
-flags.DEFINE_string(
-    'dataset_path', '',
-    'Path to dataset needed for psychlab_*, see '
-    'https://github.com/deepmind/lab/tree/master/data/brady_konkle_oliva2008')
-flags.DEFINE_string('level_name', 'explore_goal_locations_small',
-                    '''Level name or \'dmlab30\' for the full DmLab-30 suite '''
-                    '''with levels assigned round robin to the actors.''')
-flags.DEFINE_integer('width', 96, 'Width of observation.')
-flags.DEFINE_integer('height', 72, 'Height of observation.')
 
 # Optimizer settings.
 flags.DEFINE_float('learning_rate', 0.00048, 'Learning rate.')
@@ -90,32 +108,28 @@ flags.DEFINE_float('epsilon', .1, 'RMSProp epsilon.')
 
 # Structure to be sent from actors to learner.
 ActorOutput = collections.namedtuple(
-    'ActorOutput', 'level_name agent_state env_outputs agent_outputs')
-AgentOutput = collections.namedtuple('AgentOutput',
-                                     'action policy_logits baseline')
+    'ActorOutput', 
+    'agent_state env_outputs agent_outputs'
+)
 
+AgentOutput = collections.namedtuple(
+    'AgentOutput',
+    'action policy_logits baseline'
+)
 
 def is_single_machine():
   return FLAGS.task == -1
-
 
 def build_actor(agent, env):
   """Builds the actor loop."""
   # Initial values.
   initial_env_output, initial_env_state = env.initial()
-  initial_agent_state = agent.initial_state(1)
-  initial_action = tf.zeros([1], dtype=tf.int32)
-  initial_action = tf.zeros([1], dtype=tf.int32)
+  initial_input_num = tf.constant(1)
 
-  dummy_agent_output, _ = agent(
-        (
-          initial_action,
-          nest.map_structure(
-            lambda t: tf.expand_dims(t, 0),
-            initial_env_output
-          )
-        ),
-        initial_agent_state
+  dummy_agent_output = agent(
+          getattr(initial_env_output, 'feature_frame'),
+          getattr(initial_env_output, 'pv'),
+          initial_input_num
   )
 
   initial_agent_output = nest.map_structure(
@@ -136,37 +150,21 @@ def build_actor(agent, env):
       (
           initial_env_state,
           initial_env_output, 
-          initial_agent_state,
           initial_agent_output
       )
   )
 
+  # TODO add pause 
   def step(input_, unused_i):
     """Steps through the agent and the environment."""
     env_state, env_output, agent_state, agent_output = input_
 
-    # Run agent.
-    action = agent_output[0]
-    batched_env_output = nest.map_structure(
-        lambda t: tf.expand_dims(t, 0),
-        env_output
-    )
-
-    agent_output, agent_state = agent(
-        (
-            action, 
-            batched_env_output
-        ), 
+    action, agent_state = agent(
+        env_output,
         agent_state
     )
 
-    # Convert action index to the native action.
-    action = agent_output[0][0]
-    raw_action = tf.gather(
-        action_set, 
-        action
-    )
-
+    # TODO remove first element of array in tensor
     env_output, env_state = env.step(
         raw_action, 
         env_state
@@ -174,49 +172,51 @@ def build_actor(agent, env):
 
     return env_state, env_output, agent_state, agent_output
 
-  # Run the unroll. `read_value()` is needed to make sure later usage will
-  # return the first values and not a new snapshot of the variables.
+  # Run the unroll. `read_value()` is 
+  # needed to make sure later usage will
+  # return the first values and not a new
+  # snapshot of the variables.
   first_values = nest.map_structure(
-      lambda v: v.read_value(),
+      lambda v: v.read_value(), 
       persistent_state
   )
+
   _, first_env_output, first_agent_state, first_agent_output = first_values
 
-
-
-  # Use scan to apply `step` multiple times, therefore unrolling the agent
-  # and environment interaction for `FLAGS.unroll_length`. `tf.scan` forwards
-  # the output of each call of `step` as input of the subsequent call of `step`.
-  # The unroll sequence is initialized with the agent and environment states
-  # and outputs as stored at the end of the previous unroll.
-  # `output` stores lists of all states and outputs stacked along the entire
-  # unroll. Note that the initial states and outputs (fed through `initializer`)
-  # are not in `output` and will need to be added manually later.
-  output = tf.scan(
-      step,
-      tf.range(
-          FLAGS.unroll_length
-      ),
-      first_values
+  # todo make into batch
+  perceptual_stream = tf.while_loop(
+        cond,
+        step,
+        (loop_vars),
+        shape_invariants=None,
+        parallel_iterations=10,
+        back_prop=True,
+        swap_memory=False,
+        name=None,
+        maximum_iterations=None,
+        return_same_structure=False
   )
-    
-    
-  _, env_outputs, _, agent_outputs = output
 
-  # Update persistent state with the last output from the loop.
-  assign_ops = nest.map_structure(
-      lambda v, t: v.assign(t[-1]),
-      persistent_state, 
-      output
-  )
+  _, env_outputs, _, agent_outputs = perceptual_stream  
 
   # The control dependency ensures that the final agent and environment states
   # and outputs are stored in `persistent_state` (to initialize next unroll).
   with tf.control_dependencies(nest.flatten(assign_ops)):
     # Remove the batch dimension from the agent state/output.
-    first_agent_state = nest.map_structure(lambda t: t[0], first_agent_state)
-    first_agent_output = nest.map_structure(lambda t: t[0], first_agent_output)
-    agent_outputs = nest.map_structure(lambda t: t[:, 0], agent_outputs)
+    first_agent_state = nest.map_structure(
+        lambda t: t[0],
+        first_agent_state
+    )
+
+    first_agent_output = nest.map_structure(
+        lambda t: t[0], 
+        first_agent_output
+    )
+
+    agent_outputs = nest.map_structure(
+        lambda t: t[:, 0], 
+        agent_outputs
+    )
 
     # Concatenate first output and the unroll along the time dimension.
     full_agent_outputs, full_env_outputs = nest.map_structure(
@@ -226,7 +226,6 @@ def build_actor(agent, env):
     )
 
     output = ActorOutput(
-        level_name=level_name, 
         agent_state=first_agent_state,
         env_outputs=full_env_outputs, 
         agent_outputs=full_agent_outputs
@@ -275,14 +274,23 @@ def build_learner(agent, agent_state, env_outputs, agent_outputs):
     A tuple of (done, infos, and environment frames) where
     the environment frames tensor causes an update.
     """
+
+    print(env_outputs)
     
+    learner_output, agent_state = agent(
+        (action, batched_env_output), 
+        agent_state,
+
+    )
+
     learner_outputs, _ = agent.unroll(
         agent_outputs.action,
         env_outputs,
         agent_state
     )
 
-    # Use last baseline value (from the value function) to bootstrap.
+    # Use last baseline value 
+    # (from the value function) to bootstrap.
     bootstrap_value = learner_outputs.baseline[-1]
 
     # At this point, the environment outputs at time step `t` are the inputs that
@@ -290,10 +298,22 @@ def build_learner(agent, agent_state, env_outputs, agent_outputs):
     # the actions in agent_outputs and learner_outputs at time step `t` is what
     # leads to the environment outputs at time step `t`.
 
-    #Applies func to each entry in structure and returns a new structure.
-    agent_outputs = nest.map_structure(lambda t: t[1:], agent_outputs)
-    rewards, infos, done, _ = nest.map_structure(lambda t: t[1:], env_outputs)
-    learner_outputs = nest.map_structure(lambda t: t[:-1], learner_outputs)
+    # Applies func to each entry in 
+    # structure and returns a new structure.
+    agent_outputs = nest.map_structure(
+        lambda t: t[1:], 
+        agent_outputs
+    )
+
+    rewards, infos, done, _ = nest.map_structure(
+        lambda t: t[1:], 
+        env_outputs
+    )
+    
+    learner_outputs = nest.map_structure(
+        lambda t: t[:-1], 
+        learner_outputs
+    )
 
     if FLAGS.reward_clipping == 'abs_one':
         clipped_rewards = tf.clip_by_value(rewards, -1, 1)
@@ -304,7 +324,6 @@ def build_learner(agent, agent_state, env_outputs, agent_outputs):
     clipped_rewards = tf.where(rewards < 0, .3 * squeezed, squeezed) * 5.
 
     discounts = tf.to_float(~done) * FLAGS.discounting
-    
     
     # Compute V-trace returns and weights.
     # Note, this is put on the CPU because it's faster than on GPU. It can be
@@ -346,6 +365,7 @@ def build_learner(agent, agent_state, env_outputs, agent_outputs):
         0
     )
 
+    # TODO change to Adam optimizer
     optimizer = tf.train.RMSPropOptimizer(
         learning_rate,
         FLAGS.decay,
@@ -371,7 +391,7 @@ def build_learner(agent, agent_state, env_outputs, agent_outputs):
     return done, infos, num_env_frames_and_train
 
 
-def create_environment(level_name, seed, is_test=False):
+def create_environment(is_test=False):
   """Creates an exchange environment wrapped in a `FlowEnvironment`."""
 
   config = {
@@ -463,10 +483,7 @@ def train():
         commission=FLAGS.commission
     )
     
-    env = create_environment(
-        level_names[0],
-        seed=1
-    )
+    env = create_environment()
     
     structure = build_actor(
         agent,
@@ -548,9 +565,7 @@ def train():
         
         actor_output = build_actor(
             agent,
-            env, 
-            level_name, 
-            action_set
+            env
         )
         
         # Append the actor outputs to the 
@@ -827,18 +842,10 @@ def test(action_set, level_names):
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
 
-  action_set = environments.DEFAULT_ACTION_SET
-  if FLAGS.level_name == 'dmlab30' and FLAGS.mode == 'train':
-    level_names = dmlab30.LEVEL_MAPPING.keys()
-  elif FLAGS.level_name == 'dmlab30' and FLAGS.mode == 'test':
-    level_names = dmlab30.LEVEL_MAPPING.values()
-  else:
-    level_names = [FLAGS.level_name]
-
   if FLAGS.mode == 'train':
-    train(action_set, level_names)
+    train()
   else:
-    test(action_set, level_names)
+    test()
 
 
 if __name__ == '__main__':

@@ -1,3 +1,7 @@
+import sonnet as snt
+import tensorflow as tf
+import tflearn
+
 class Agent(snt.AbstractModule):
     """
     Object representing the actor network, which approximates the function:
@@ -11,8 +15,7 @@ class Agent(snt.AbstractModule):
         asset_num,
         window_size,
         commission
-    ):
-        
+    ):  
         super(Agent, self).__init__(name='agent');
         self.feature_num = feature_num
         self.asset_num = asset_num
@@ -20,13 +23,19 @@ class Agent(snt.AbstractModule):
         self.commission = commission
         
     # TODO change to sonnet
-    def _build(self, inputs, prev_w, input_num, env_output):
+    def _build(self, inputs, prev_w, input_num):
+
+        # print(inputs[0])
+        print("==========================================")
+
+        # inputs = tf.expand_dims(inputs,0)
 
         network = tf.transpose(inputs, [0, 2, 3, 1])
         # [batch, assets, window, features]
         network = network / network[:, :, -1, 0, None, None]        
         
         # ConvLayer
+        # TODO add more layers
         network = tflearn.layers.conv_2d(
             incoming=network, 
             nb_filter=3,
@@ -42,7 +51,8 @@ class Agent(snt.AbstractModule):
         # input: 4-D Tensor [batch, height, width, in_channels].
         # output: 4-D Tensor [batch, new height, new width, nb_filter].
         width = network.get_shape()[2]
-           
+        
+        #TODO add more layers
         network = tflearn.layers.conv_2d(
             incoming=network, 
             nb_filter=10,
@@ -59,9 +69,19 @@ class Agent(snt.AbstractModule):
         height = network.get_shape()[1]
         features = network.get_shape()[3]
    
+        print(width)
+        print(height)
+        print(features)
+        print("================================")
+
         network = tf.reshape(
             network,
-            [input_num, int(height), 1, int(width*features)]
+            [
+                input_num,
+                int(height),
+                1, 
+                int(width*features)
+            ]
         )
 
         w = tf.reshape(
@@ -110,15 +130,7 @@ class Agent(snt.AbstractModule):
             activation="softmax"
         )
 
-        self.policy = network
-
-        self.value = tflearn.layers.core.fully_connected(
-            network,
-            1,
-            activation=None,
-            weights_init=normalized_columns_initializer(1.0),
-            bias_init=None
-        )
+        return network
                 
     def pure_pc(self):
         c = self.commission_ratio

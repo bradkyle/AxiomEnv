@@ -1,5 +1,15 @@
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
+import os.path
+import numpy as np
+import tensorflow as tf
+
+import collections
 from client.client import Client
 
+nest = tf.contrib.framework.nest
 
 class PyProcessExchEnv(object):
   """DeepMind Lab wrapper for PyProcess."""
@@ -7,7 +17,7 @@ class PyProcessExchEnv(object):
   def __init__(
     self, 
     config,
-    remote_base
+    remote_base="http://localhost:5000"
     ):
 
     self.client = Client(remote_base)
@@ -17,9 +27,15 @@ class PyProcessExchEnv(object):
     self.client.reset(self.instance_id)
 
   def _observation(self):
-    d = self.client.get_state(self.instance_id)
-
-    return [d[k] for k in self._observation_spec]
+    [
+        assets, 
+        feature_frame, 
+        current_pv, 
+        pv_prices, 
+        pv_values, 
+        tnorm
+    ] =  self.client.env_state(self.instance_id)
+    return feature_frame, current_pv
 
   def initial(self):
     self._reset()
@@ -36,7 +52,7 @@ class PyProcessExchEnv(object):
       self.instance_id, 
       action
     )
-    return reward, done, observation
+    return feature_frame, current_pv, profit, False
 
   def close(self):
     self.client.close(self.instance_id)
@@ -44,13 +60,14 @@ class PyProcessExchEnv(object):
   @staticmethod
   def _tensor_specs(method_name, unused_kwargs, constructor_kwargs):
     """Returns a nest of `TensorSpec` with the method's output specification."""
+    batch_size = constructor_kwargs['config'].get('batch_size', 1)
     feature_num = constructor_kwargs['config'].get('feature_num', 3)
     asset_num = constructor_kwargs['config'].get('asset_num', 50)
     window_size = constructor_kwargs['config'].get('window_size', 90)
 
     observation_spec = [
-        tf.contrib.framework.TensorSpec([feature_num, asset_num, window_size], tf.uint8),
-        tf.contrib.framework.TensorSpec([], tf.string),
+        tf.contrib.framework.TensorSpec([batch_size, feature_num, asset_num, window_size], tf.float32),
+        tf.contrib.framework.TensorSpec([asset_num], tf.float32)
     ]
 
     if method_name == 'initial':
@@ -70,7 +87,7 @@ StepOutputInfo = collections.namedtuple(
 
 StepOutput = collections.namedtuple(
   'StepOutput',
-  'reward info done observation'
+  'reward info done feature_frame pv'
 )
 
 
@@ -108,13 +125,15 @@ class FlowEnvironment(object):
       initial_reward = tf.constant(0.)
       initial_info = StepOutputInfo(tf.constant(0.), tf.constant(0))
       initial_done = tf.constant(True)
-      initial_observation = self._env.initial()
+      
+      initial_feature_frame, initial_pv = self._env.initial()
 
       initial_output = StepOutput(
           initial_reward,
           initial_info,
           initial_done,
-          initial_observation
+          initial_feature_frame,
+          initial_pv
       )
 
       # Control dependency to make sure the next step can't be taken before the
@@ -122,6 +141,7 @@ class FlowEnvironment(object):
       with tf.control_dependencies(nest.flatten(initial_output)):
         initial_flow = tf.constant(0, dtype=tf.int64)
       initial_state = (initial_flow, initial_info)
+      
       return initial_output, initial_state
 
   def step(self, action, state):
@@ -144,7 +164,7 @@ class FlowEnvironment(object):
       # Make sure the previous step has been executed before running the next
       # step.
       with tf.control_dependencies([flow]):
-        reward, done, observation = self._env.step(action)
+        feature_frame, pv, reward, done = self._env.step(action)
 
       with tf.control_dependencies(nest.flatten(observation)):
         new_flow = tf.add(flow, 1)
@@ -174,7 +194,8 @@ class FlowEnvironment(object):
         reward, 
         new_info, 
         done, 
-        observation
+        feature_frame,
+        pv
       )
 
       return output, new_state
