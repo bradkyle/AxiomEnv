@@ -238,7 +238,7 @@ async def env_state(request):
         'current_pv':current_pv,
         'pv_prices':pv_prices,
         'pv_values':pv_values,
-        'tnorm' tnorm
+        'tnorm': tnorm
     })
 
 async def env_info(request):
@@ -260,7 +260,6 @@ async def env_close(request):
     )
 
     return request.Response(code=200)
-
 
 
 ########## API route definitions ##########

@@ -35,6 +35,8 @@ import py_process
 import sonnet as snt
 import tensorflow as tf
 import vtrace
+from actor import build_actor
+from learner import build_learner
 
 try:
   import dynamic_batching
@@ -74,8 +76,19 @@ flags.DEFINE_integer('asset_num', 50, 'Number of assets to actively trade')
 flags.DEFINE_integer('window_size', 90, 'Size of the historical window')
 flags.DEFINE_integer('selection_period', 90, 'Period over which assets should be selected')
 flags.DEFINE_integer('unroll_length', 100, 'Number of steps an agent takes per episode')
-flags.DEFINE_enum('selection_method', 's2vol', ['s2', 's2vol', 'random', 'most_traded'], # todo randomize
-                  'The method to use to select a set of assets')
+
+flags.DEFINE_enum(
+    'selection_method', 
+    's2vol', 
+    [
+        's2', 
+        's2vol', 
+        'random', 
+        'most_traded'
+    ],
+    'The method to use to select a set of assets'
+)
+
 flags.DEFINE_enum(
     'reward_method',
     'profit',
@@ -87,9 +100,19 @@ flags.DEFINE_enum(
     ], 
     'The reward method to use'
 )
-flags.DEFINE_float('balance_init', 1.0, 'The initial amout of quote asset to start with') # 
-flags.DEFINE_enum('env_type', 'sandbox', ['sandbox', 'live'], # todo randomize
-                  'The type of environment to use')
+
+flags.DEFINE_float(
+    'balance_init', 
+    1.0, 
+    'The initial amout of quote asset to start with'
+)
+
+flags.DEFINE_enum(
+    'env_type', 
+    'sandbox', 
+    ['sandbox', 'live'], # todo randomize
+    'The type of environment to use'
+)
 
 # Loss settings.
 # todo change to adam
@@ -117,295 +140,24 @@ AgentOutput = collections.namedtuple(
     'action policy_logits baseline'
 )
 
+DEFAULT_CONFIG = {
+    'quote_asset': FLAGS.quote_asset,
+    'commission': FLAGS.commission,
+    'feature_num':FLAGS.feature_num,
+    'asset_num':FLAGS.asset_num,
+    'window_size':FLAGS.window_size,
+    'selection_period':FLAGS.selection_period,
+    'selection_method':FLAGS.selection_method,
+    'balance_init':FLAGS.balance_init,
+    'env_type': FLAGS.env_type
+}
+
 def is_single_machine():
   return FLAGS.task == -1
 
-def build_actor(agent, env):
-  """Builds the actor loop."""
-  # Initial values.
-  initial_env_output, initial_env_state = env.initial()
-  initial_input_num = tf.constant(1)
-
-  dummy_agent_output = agent(
-          getattr(initial_env_output, 'feature_frame'),
-          getattr(initial_env_output, 'pv'),
-          initial_input_num
-  )
-
-  initial_agent_output = nest.map_structure(
-      lambda t: tf.zeros(t.shape, t.dtype),
-      dummy_agent_output
-  )
-
-  # All state that needs to persist across training iterations. This includes
-  # the last environment output, agent state and last agent output. These
-  # variables should never go on the parameter servers.
-  def create_state(t):
-    # Creates a unique variable scope to ensure the variable name is unique.
-    with tf.variable_scope(None, default_name='state'):
-      return tf.get_local_variable(t.op.name, initializer=t, use_resource=True)
-
-  persistent_state = nest.map_structure(
-      create_state,
-      (
-          initial_env_state,
-          initial_env_output, 
-          initial_agent_output
-      )
-  )
-
-  # TODO add pause 
-  def step(input_, unused_i):
-    """Steps through the agent and the environment."""
-    env_state, env_output, agent_state, agent_output = input_
-
-    action, agent_state = agent(
-        env_output,
-        agent_state
-    )
-
-    # TODO remove first element of array in tensor
-    env_output, env_state = env.step(
-        raw_action, 
-        env_state
-    )
-
-    return env_state, env_output, agent_state, agent_output
-
-  # Run the unroll. `read_value()` is 
-  # needed to make sure later usage will
-  # return the first values and not a new
-  # snapshot of the variables.
-  first_values = nest.map_structure(
-      lambda v: v.read_value(), 
-      persistent_state
-  )
-
-  _, first_env_output, first_agent_state, first_agent_output = first_values
-
-  # todo make into batch
-  perceptual_stream = tf.while_loop(
-        cond,
-        step,
-        (loop_vars),
-        shape_invariants=None,
-        parallel_iterations=10,
-        back_prop=True,
-        swap_memory=False,
-        name=None,
-        maximum_iterations=None,
-        return_same_structure=False
-  )
-
-  _, env_outputs, _, agent_outputs = perceptual_stream  
-
-  # The control dependency ensures that the final agent and environment states
-  # and outputs are stored in `persistent_state` (to initialize next unroll).
-  with tf.control_dependencies(nest.flatten(assign_ops)):
-    # Remove the batch dimension from the agent state/output.
-    first_agent_state = nest.map_structure(
-        lambda t: t[0],
-        first_agent_state
-    )
-
-    first_agent_output = nest.map_structure(
-        lambda t: t[0], 
-        first_agent_output
-    )
-
-    agent_outputs = nest.map_structure(
-        lambda t: t[:, 0], 
-        agent_outputs
-    )
-
-    # Concatenate first output and the unroll along the time dimension.
-    full_agent_outputs, full_env_outputs = nest.map_structure(
-        lambda first, rest: tf.concat([[first], rest], 0),
-        (first_agent_output, first_env_output),
-        (agent_outputs, env_outputs)
-    )
-
-    output = ActorOutput(
-        agent_state=first_agent_state,
-        env_outputs=full_env_outputs, 
-        agent_outputs=full_agent_outputs
-    )
-
-    # No backpropagation should be done here.
-    return nest.map_structure(tf.stop_gradient, output)
-
-
-def compute_baseline_loss(advantages):
-  # Loss for the baseline, summed over the time dimension.
-  # Multiply by 0.5 to match the standard update rule:
-  # d(loss) / d(baseline) = advantage
-  return .5 * tf.reduce_sum(tf.square(advantages))
-
-
-def compute_entropy_loss(logits):
-  policy = tf.nn.softmax(logits)
-  log_policy = tf.nn.log_softmax(logits)
-  entropy_per_timestep = tf.reduce_sum(-policy * log_policy, axis=-1)
-  return -tf.reduce_sum(entropy_per_timestep)
-
-
-def compute_policy_gradient_loss(logits, actions, advantages):
-  cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
-      labels=actions, logits=logits)
-  advantages = tf.stop_gradient(advantages)
-  policy_gradient_loss_per_timestep = cross_entropy * advantages
-  return tf.reduce_sum(policy_gradient_loss_per_timestep)
-
-
-def build_learner(agent, agent_state, env_outputs, agent_outputs):
-    """
-    Builds the learner loop.
-
-    Args:
-    agent: A snt.RNNCore module outputting `AgentOutput` named tuples, with an
-      `unroll` call for computing the outputs for a whole trajectory.
-    agent_state: The initial agent state for each sequence in the batch.
-    env_outputs: A `StepOutput` namedtuple where each field is of shape
-      [T+1, ...].
-    agent_outputs: An `AgentOutput` namedtuple where each field is of shape
-      [T+1, ...].
-
-    Returns:
-    A tuple of (done, infos, and environment frames) where
-    the environment frames tensor causes an update.
-    """
-
-    print(env_outputs)
-    
-    learner_output, agent_state = agent(
-        (action, batched_env_output), 
-        agent_state,
-
-    )
-
-    learner_outputs, _ = agent.unroll(
-        agent_outputs.action,
-        env_outputs,
-        agent_state
-    )
-
-    # Use last baseline value 
-    # (from the value function) to bootstrap.
-    bootstrap_value = learner_outputs.baseline[-1]
-
-    # At this point, the environment outputs at time step `t` are the inputs that
-    # lead to the learner_outputs at time step `t`. After the following shifting,
-    # the actions in agent_outputs and learner_outputs at time step `t` is what
-    # leads to the environment outputs at time step `t`.
-
-    # Applies func to each entry in 
-    # structure and returns a new structure.
-    agent_outputs = nest.map_structure(
-        lambda t: t[1:], 
-        agent_outputs
-    )
-
-    rewards, infos, done, _ = nest.map_structure(
-        lambda t: t[1:], 
-        env_outputs
-    )
-    
-    learner_outputs = nest.map_structure(
-        lambda t: t[:-1], 
-        learner_outputs
-    )
-
-    if FLAGS.reward_clipping == 'abs_one':
-        clipped_rewards = tf.clip_by_value(rewards, -1, 1)
-    elif FLAGS.reward_clipping == 'soft_asymmetric':
-        squeezed = tf.tanh(rewards / 5.0)
-    
-    # Negative rewards are given less weight than positive rewards.
-    clipped_rewards = tf.where(rewards < 0, .3 * squeezed, squeezed) * 5.
-
-    discounts = tf.to_float(~done) * FLAGS.discounting
-    
-    # Compute V-trace returns and weights.
-    # Note, this is put on the CPU because it's faster than on GPU. It can be
-    # improved further with XLA-compilation or with a custom TensorFlow operation.
-    with tf.device('/cpu'):
-        vtrace_returns = vtrace.from_logits(
-            behaviour_policy_logits=agent_outputs.policy_logits,
-            target_policy_logits=learner_outputs.policy_logits,
-            actions=agent_outputs.action,
-            discounts=discounts,
-            rewards=clipped_rewards,
-            values=learner_outputs.baseline,
-            bootstrap_value=bootstrap_value
-        )
-
-    # Compute loss as a weighted sum of the baseline loss, the policy gradient
-    # loss and an entropy regularization term.
-    total_loss = compute_policy_gradient_loss(
-      learner_outputs.policy_logits,
-      agent_outputs.action,
-      vtrace_returns.pg_advantages
-    )
-
-    total_loss += FLAGS.baseline_cost * compute_baseline_loss(
-      vtrace_returns.vs - learner_outputs.baseline
-    )
-
-    total_loss += FLAGS.entropy_cost * compute_entropy_loss(
-      learner_outputs.policy_logits
-    )
-
-    # Optimization
-    num_env_frames = tf.train.get_global_step()
-
-    learning_rate = tf.train.polynomial_decay(
-        FLAGS.learning_rate, 
-        num_env_frames,
-        FLAGS.total_environment_frames, 
-        0
-    )
-
-    # TODO change to Adam optimizer
-    optimizer = tf.train.RMSPropOptimizer(
-        learning_rate,
-        FLAGS.decay,
-        FLAGS.momentum, 
-        FLAGS.epsilon
-    )
-
-    train_op = optimizer.minimize(
-        total_loss
-    )
-        
-    # Merge updating the network and environment frames into a single tensor.
-    with tf.control_dependencies([train_op]):
-        num_env_frames_and_train = num_env_frames.assign_add(
-            FLAGS.batch_size * FLAGS.unroll_length * FLAGS.num_action_repeats
-        )
-
-    # Adding a few summaries.
-    tf.summary.scalar('learning_rate', learning_rate)
-    tf.summary.scalar('total_loss', total_loss)
-    tf.summary.histogram('action', agent_outputs.action)
-
-    return done, infos, num_env_frames_and_train
-
-
-def create_environment(is_test=False):
+def create_environment(config, is_test=False):
   """Creates an exchange environment wrapped in a `FlowEnvironment`."""
 
-  config = {
-      'quote_asset': FLAGS.quote_asset,
-      'commission': FLAGS.commission,
-      'feature_num':FLAGS.feature_num,
-      'asset_num':FLAGS.asset_num,
-      'window_size':FLAGS.window_size,
-      'selection_period':FLAGS.selection_period,
-      'selection_method':FLAGS.selection_method,
-      'balance_init':FLAGS.balance_init,
-      'env_type': FLAGS.env_type
-  }
-  
   p = py_process.PyProcess(
     wrappers.PyProcessExchEnv,
     config
@@ -450,8 +202,7 @@ def train():
 
     # Placing the variable on CPU, makes it cheaper to send it to all the
     # actors. Continual copying the variables from the GPU is slow.
-    global_variable_device = shared_job_device + '/cpu'
-    
+    global_variable_device = shared_job_device + '/cpu'    
     
     # Represents a cluster as a set of
     # "tasks", organized into "jobs".
@@ -464,7 +215,6 @@ def train():
         'learner': ['localhost:8000']
     })
     
-    # 
     server = tf.train.Server(
         cluster, 
         job_name=FLAGS.job_name,
@@ -483,7 +233,7 @@ def train():
         commission=FLAGS.commission
     )
     
-    env = create_environment()
+    env = create_environment(DEFAULT_CONFIG)
     
     structure = build_actor(
         agent,
@@ -494,13 +244,16 @@ def train():
     dtypes = [t.dtype for t in flattened_structure]
     shapes = [t.shape.as_list() for t in flattened_structure]
 
+
+
   with tf.Graph().as_default(), \
        tf.device(local_job_device + '/cpu'), \
        pin_global_variables(global_variable_device):
     
     tf.set_random_seed(FLAGS.seed)  # Makes initialization deterministic.
 
-    # Create Queue and Agent on the learner.
+    # BUILD QUEUE
+    # ===========================================================================>
     with tf.device(shared_job_device):
       
       # A queue implementation that dequeues 
@@ -548,20 +301,19 @@ def train():
         tf.logging.info('Using dynamic batching.')
         agent._build = build
 
+
+    # BUILD ACTORS
+    # ===========================================================================>
+
     # Todo make better for real time environment
     # Build actors and ops to enqueue their output.
     enqueue_ops = []
-    for i in range(FLAGS.num_actors):
+    for i in range(FLAGS.num_actors): # TODO change to env configurations
       if is_actor_fn(i):
         
-        level_name = level_names[i % len(level_names)]
+        tf.logging.info('Creating actor with config')
         
-        tf.logging.info('Creating actor %d with level %s', i, level_name)
-        
-        env = create_environment(
-            level_name, 
-            seed=i + 1
-        )
+        env = create_environment()
         
         actor_output = build_actor(
             agent,
@@ -575,9 +327,14 @@ def train():
         with tf.device(shared_job_device):
           enqueue_ops.append(
               queue.enqueue(
-                  nest.flatten(actor_output)
+                  nest.flatten(
+                      actor_output
+                  )
               )
           )
+
+    # ADD QUEUE RUNNER
+    # ===========================================================================>
 
     # If running in a single machine setup, run actors with QueueRunners
     # (separate threads).
@@ -595,11 +352,13 @@ def train():
       # The QueueRunner, combined with the Coordinator, helps handle these issues.
       tf.train.add_queue_runner(
           tf.train.QueueRunner(
-              queue, enqueue_ops
+              queue, 
+              enqueue_ops
           )
       )
 
-    # Build learner.
+    # BUILD LEARNER
+    # ===========================================================================>
     if is_learner:
       # Create global step, which is the number
       # of environment frames processed.
@@ -621,7 +380,9 @@ def train():
 
       def make_time_major(s):
         return nest.map_structure(
-            lambda t: tf.transpose(t, [1, 0] + list(range(t.shape.ndims))[2:]), s)
+            lambda t: tf.transpose(t, [1, 0] + list(range(t.shape.ndims))[2:]), 
+            s
+        )
 
       # Make dequeued time major
       dequeued = dequeued._replace(
@@ -629,6 +390,7 @@ def train():
           agent_outputs=make_time_major(dequeued.agent_outputs)
       )
 
+      # 
       with tf.device('/gpu'):
         flattened_output = nest.flatten(dequeued)
         # Using StagingArea allows us to prepare the next batch and send it to
@@ -682,6 +444,10 @@ def train():
     # Create MonitoredSession (to run the graph, checkpoint and log).
     tf.logging.info('Creating MonitoredSession, is_chief %s', is_learner)
     config = tf.ConfigProto(allow_soft_placement=True, device_filters=filters)
+
+
+    # RUN GRAPH
+    # ===========================================================================>
     
     #Creates a MonitoredSession for training.
     # For a chief, this utility sets proper session 
@@ -702,9 +468,9 @@ def train():
         hooks=[py_process.PyProcessHook()]
     ) as session:
 
+      # If the agent is a learner
       if is_learner:
         # Logging.
-        level_returns = {level_name: [] for level_name in level_names}
         summary_writer = tf.summary.FileWriterCache.get(FLAGS.logdir)
 
         # Prepare data for first run.
@@ -714,6 +480,9 @@ def train():
 
         # Execute learning and track performance.
         num_env_frames_v = 0
+
+        # 
+        # =================================================================>
         
         while num_env_frames_v < FLAGS.total_environment_frames:
             
@@ -722,87 +491,28 @@ def train():
               (data_from_actors.level_name,) + output + (stage_op,)
           )
         
-          # 
-          level_names_v = np.repeat(
-              [level_names_v],
-              done_v.shape[0],
-              0
-          )
-
-          for level_name, episode_return, episode_step in zip(
-              level_names_v[done_v],
-              infos_v.episode_return[done_v],
-              infos_v.episode_step[done_v]
-          ):
-            
-            episode_frames = episode_step * FLAGS.num_action_repeats
-
-            tf.logging.info(
-                'Level: %s Episode return: %f',
-                 level_name, 
-                 episode_return
-            )
-
-            summary = tf.summary.Summary()
-            
-            summary.value.add(
-                tag=level_name + '/episode_return',
-                simple_value=episode_return
-            )
-            
-            summary.value.add(
-                tag=level_name + '/episode_frames',
-                simple_value=episode_frames
-            )
-            
-            summary_writer.add_summary(
-                summary, 
-                num_env_frames_v
-            )
-
-            if FLAGS.level_name == 'dmlab30':
-              level_returns[level_name].append(episode_return)
-
-            
-          if (FLAGS.level_name == 'dmlab30' and
-              min(map(len, level_returns.values())) >= 1):
-            
-            no_cap = dmlab30.compute_human_normalized_score(
-                level_returns,
-                per_level_cap=None
-            )
-            
-            cap_100 = dmlab30.compute_human_normalized_score(
-                level_returns,
-                per_level_cap=100
-            )
-            
-            summary = tf.summary.Summary()
-            
-            summary.value.add(
-                tag='dmlab30/training_no_cap',
-                simple_value=no_cap
-            )
-            
-            summary.value.add(
-                tag='dmlab30/training_cap_100', 
-                simple_value=cap_100
-            )
-            
-            summary_writer.add_summary(
-                summary, 
-                num_env_frames_v
-            )
-
-            # Clear level scores.
-            level_returns = {level_name: [] for level_name in level_names}
-
+         
       else:
         # Execute actors (they just need to enqueue their output).
         while True:
           session.run(enqueue_ops)
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# TODO run env step
 def test(action_set, level_names):
   """Test."""
 

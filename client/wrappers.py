@@ -144,6 +144,9 @@ class FlowEnvironment(object):
       
       return initial_output, initial_state
 
+  def subscribe(self, action, state):
+    pass
+
   def step(self, action, state):
     """Takes a step in the environment.
 
