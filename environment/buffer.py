@@ -8,6 +8,9 @@ import asyncio
 import constants.db as db_const
 import constants.fields as fields
 
+# TODO data normalization!
+# 
+
 class Buffer():
     def __init__(
         self,

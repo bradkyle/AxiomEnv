@@ -1,0 +1,5 @@
+rethinkdb_data
+.vscode
+.ipynb*
+.cache
+.pytest*

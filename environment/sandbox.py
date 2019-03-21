@@ -1,4 +1,5 @@
 from enum import Enum
+import time
 
 class SandboxEnv():
     def __init__(
@@ -6,6 +7,7 @@ class SandboxEnv():
         buffer,
         quote_asset,
         commission,
+        step_rate,
         asset_num,
         window_size,
         feature_num,
@@ -17,6 +19,7 @@ class SandboxEnv():
         self.buffer=buffer
         self.quote_asset = quote_asset
         self.commission = commission
+        self.step_rate = step_rate # Per minute
         self.asset_num = asset_num
         self.window_size = window_size
         self.feature_num = feature_num
@@ -29,29 +32,23 @@ class SandboxEnv():
         self.stepped=False
         self.step_count=0
         self.prev_action_pv = [0]
+        self.assets = None
 
     async def step(self, action):
-        feature_frame, assets = await self.buffer.get_state(
-            asset_num=self.asset_num,
-            window_size=self.window_size,
-            feature_num=self.feature_num,
-            selection_period=self.selection_period,
-            selection_method=self.selection_method
-        )
 
         await self.close_inactive_positions(
             quote_asset=self.quote_asset,
-            assets=assets
+            assets=self.assets
         )
 
         current_pv = await self.derive_pv(
             quote_asset=self.quote_asset,
-            assets=assets
+            assets=self.assets
         )
 
         await self.execute_position(
             p_vector=action,
-            assets=assets,
+            assets=self.assets,
             quote_asset=self.quote_asset
         )
 
@@ -65,6 +62,16 @@ class SandboxEnv():
         self.prev_action_pv = action
 
         profit = tnorm - self.prev_tnorm
+
+        feature_frame, assets = await self.buffer.get_state(
+            asset_num=self.asset_num,
+            window_size=self.window_size,
+            feature_num=self.feature_num,
+            selection_period=self.selection_period,
+            selection_method=self.selection_method
+        )
+
+        self.assets = assets
 
         return [
             assets,

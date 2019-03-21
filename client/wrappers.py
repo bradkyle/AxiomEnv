@@ -47,12 +47,12 @@ class PyProcessExchEnv(object):
       feature_frame, 
       current_pv, 
       tnorm,
-      profit
-    ] = client.env_step(
+      reward
+    ] = self.client.env_step(
       self.instance_id, 
       action
     )
-    return feature_frame, current_pv, profit, False
+    return feature_frame, current_pv, reward
 
   def close(self):
     self.client.close(self.instance_id)
@@ -60,23 +60,22 @@ class PyProcessExchEnv(object):
   @staticmethod
   def _tensor_specs(method_name, unused_kwargs, constructor_kwargs):
     """Returns a nest of `TensorSpec` with the method's output specification."""
-    batch_size = constructor_kwargs['config'].get('batch_size', 1)
     feature_num = constructor_kwargs['config'].get('feature_num', 3)
     asset_num = constructor_kwargs['config'].get('asset_num', 50)
     window_size = constructor_kwargs['config'].get('window_size', 90)
 
     observation_spec = [
-        tf.contrib.framework.TensorSpec([batch_size, feature_num, asset_num, window_size], tf.float32),
-        tf.contrib.framework.TensorSpec([asset_num], tf.float32)
+        tf.contrib.framework.TensorSpec([feature_num, asset_num, window_size], tf.float32), # feature_frame
+        tf.contrib.framework.TensorSpec([asset_num], tf.float32) # prev_w, TODO add historic dimension
     ]
 
     if method_name == 'initial':
       return observation_spec
     elif method_name == 'step':
       return (
+          observation_spec,
           tf.contrib.framework.TensorSpec([], tf.float32),
           tf.contrib.framework.TensorSpec([], tf.bool),
-          observation_spec,
       )
 
 
@@ -167,9 +166,9 @@ class FlowEnvironment(object):
       # Make sure the previous step has been executed before running the next
       # step.
       with tf.control_dependencies([flow]):
-        feature_frame, pv, reward, done = self._env.step(action)
+        state, reward, done = self._env.step(action)
 
-      with tf.control_dependencies(nest.flatten(observation)):
+      with tf.control_dependencies(nest.flatten(state)):
         new_flow = tf.add(flow, 1)
 
       # When done, include the reward in the output info but not in the
@@ -188,7 +187,7 @@ class FlowEnvironment(object):
       # vary depending on how many true values there are in input. Indices are
       # output in row-major order.
       new_state = new_flow, nest.map_structure(
-          lambda a, b: tf.where(done, a, b),
+          lambda a, b: tf.where(False, a, b),
           StepOutputInfo(tf.constant(0.), tf.constant(0)),
           new_info
       )
@@ -197,8 +196,8 @@ class FlowEnvironment(object):
         reward, 
         new_info, 
         done, 
-        feature_frame,
-        pv
+        state[0],
+        state[1]
       )
 
       return output, new_state

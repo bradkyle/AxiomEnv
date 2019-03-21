@@ -1,5 +1,12 @@
 import argparse
 import rethinkdb as r
+
+# Add the ptdraft folder path to the sys.path list
+import os,sys,inspect
+currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+parentdir = os.path.dirname(currentdir)
+sys.path.insert(0,parentdir) 
+
 import constants.db as db_const
 from utils.create import create
 from utils.drop import drop

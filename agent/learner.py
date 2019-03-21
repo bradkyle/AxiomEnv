@@ -1,3 +1,14 @@
+import os,sys,inspect
+currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+parentdir = os.path.dirname(currentdir)
+sys.path.insert(0,parentdir) 
+
+import tensorflow as tf
+import agent.vtrace as vtrace
+nest = tf.contrib.framework.nest
+
+
+
 def compute_baseline_loss(advantages):
   # Loss for the baseline, summed over the time dimension.
   # Multiply by 0.5 to match the standard update rule:
@@ -13,21 +24,31 @@ def compute_entropy_loss(logits):
 
 
 def compute_policy_gradient_loss(logits, actions, advantages):
+  # Measures the probability error in discrete classification tasks 
+  # in which the classes are mutually exclusive (each entry is in exactly one class).
+  # For example, each CIFAR-10 image is labeled with one and only one label: 
+  # an image can be a dog or a truck, but not both.
   cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
-      labels=actions, logits=logits)
-  advantages = tf.stop_gradient(advantages)
+      labels=actions,
+      logits=logits
+  )
+
+  advantages = tf.stop_gradient(
+      advantages
+  )
+
   policy_gradient_loss_per_timestep = cross_entropy * advantages
+  
   return tf.reduce_sum(policy_gradient_loss_per_timestep)
 
 
-def build_learner(agent, agent_state, env_outputs, agent_outputs):
+def build_learner(agent, env_outputs, agent_outputs, FLAGS):
     """
     Builds the learner loop.
 
     Args:
     agent: A snt.RNNCore module outputting `AgentOutput` named tuples, with an
       `unroll` call for computing the outputs for a whole trajectory.
-    agent_state: The initial agent state for each sequence in the batch.
     env_outputs: A `StepOutput` namedtuple where each field is of shape
       [T+1, ...].
     agent_outputs: An `AgentOutput` namedtuple where each field is of shape
@@ -37,15 +58,18 @@ def build_learner(agent, agent_state, env_outputs, agent_outputs):
     A tuple of (done, infos, and environment frames) where
     the environment frames tensor causes an update.
     """
+    print("="*70)
+    print(env_outputs)
+    print("="*70)
+    print(agent_outputs.action)
+    print("="*70)
 
-    learner_outputs, agent_state = agent(
-        (
-            action, 
-            env_outputs
-        ), 
-        agent_state
+    learner_outputs = agent.unroll(
+        agent_outputs.action,
+        env_outputs
     )
 
+    # TODO why?
     # Use last baseline value 
     # (from the value function) to bootstrap.
     bootstrap_value = learner_outputs.baseline[-1]
@@ -72,6 +96,8 @@ def build_learner(agent, agent_state, env_outputs, agent_outputs):
         learner_outputs
     )
 
+    # TODO remove reward clipping and replace with normalization
+    # with respect total portfolio value
     if FLAGS.reward_clipping == 'abs_one':
         clipped_rewards = tf.clip_by_value(rewards, -1, 1)
     elif FLAGS.reward_clipping == 'soft_asymmetric':

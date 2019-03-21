@@ -71,6 +71,7 @@ def log_probs_from_logits_and_actions(policy_logits, actions):
   policy_logits.shape.assert_has_rank(3)
   actions.shape.assert_has_rank(2)
 
+  # TODO change
   return -tf.nn.sparse_softmax_cross_entropy_with_logits(
       logits=policy_logits, 
       labels=actions
@@ -177,17 +178,21 @@ def from_logits(
     ]
   ):
 
+    # TODO change
     target_action_log_probs = log_probs_from_logits_and_actions(
         target_policy_logits, 
         actions
     )
 
+    # TODO change
     behaviour_action_log_probs = log_probs_from_logits_and_actions(
         behaviour_policy_logits, 
         actions
     )
 
     log_rhos = target_action_log_probs - behaviour_action_log_probs
+
+
 
     vtrace_returns = from_importance_weights(
         log_rhos=log_rhos,
@@ -314,7 +319,11 @@ def from_importance_weights(
   ):
     rhos = tf.exp(log_rhos)
     if clip_rho_threshold is not None:
-      clipped_rhos = tf.minimum(clip_rho_threshold, rhos, name='clipped_rhos')
+      clipped_rhos = tf.minimum(
+        clip_rho_threshold, 
+        rhos, 
+        name='clipped_rhos'
+      )
     else:
       clipped_rhos = rhos
 
@@ -322,7 +331,10 @@ def from_importance_weights(
 
     # Append bootstrapped value to get [v1, ..., v_t+1]
     values_t_plus_1 = tf.concat(
-        [values[1:], tf.expand_dims(bootstrap_value, 0)],
+        [
+          values[1:],
+          tf.expand_dims(bootstrap_value, 0)
+        ],
         axis=0
     )
 
@@ -342,6 +354,7 @@ def from_importance_weights(
       return delta_t + discount_t * c_t * acc
 
     initial_values = tf.zeros_like(bootstrap_value)
+
     vs_minus_v_xs = tf.scan(
         fn=scanfunc,
         elems=sequences,

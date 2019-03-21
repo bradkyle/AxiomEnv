@@ -28,7 +28,7 @@ import collections
 import contextlib
 import functools
 
-from agent.agent import Agent
+from agent.dev_agent import Agent
 import client.wrappers as wrappers
 import numpy as np
 import py_process
@@ -65,7 +65,7 @@ flags.DEFINE_enum('job_name', 'learner', ['learner', 'actor'],
 flags.DEFINE_integer('total_environment_frames', int(1e9),
                      'Total environment frames to train for.')
 flags.DEFINE_integer('num_actors', 4, 'Number of actors.')
-flags.DEFINE_integer('batch_size', 2, 'Batch size for training.')
+flags.DEFINE_integer('batch_size', 3, 'Batch size for training.')
 
 # Environment
 flags.DEFINE_enum('quote_asset', 'BTC', ['BTC', 'BNB', 'ETH', 'USDT'], # todo randomize
@@ -75,7 +75,8 @@ flags.DEFINE_integer('feature_num', 3, 'Number of features')
 flags.DEFINE_integer('asset_num', 50, 'Number of assets to actively trade')
 flags.DEFINE_integer('window_size', 90, 'Size of the historical window')
 flags.DEFINE_integer('selection_period', 90, 'Period over which assets should be selected')
-flags.DEFINE_integer('unroll_length', 100, 'Number of steps an agent takes per episode')
+flags.DEFINE_integer('unroll_length', 1000, 'Number of steps an agent takes per episode')
+flags.DEFINE_integer('seed', 1, 'Random seed.')
 
 flags.DEFINE_enum(
     'selection_method', 
@@ -128,12 +129,6 @@ flags.DEFINE_float('decay', .99, 'RMSProp optimizer decay.')
 flags.DEFINE_float('momentum', 0., 'RMSProp momentum.')
 flags.DEFINE_float('epsilon', .1, 'RMSProp epsilon.')
 
-
-# Structure to be sent from actors to learner.
-ActorOutput = collections.namedtuple(
-    'ActorOutput', 
-    'agent_state env_outputs agent_outputs'
-)
 
 AgentOutput = collections.namedtuple(
     'AgentOutput',
@@ -236,8 +231,9 @@ def train():
     env = create_environment(DEFAULT_CONFIG)
     
     structure = build_actor(
-        agent,
-        env
+        agent=agent,
+        env=env,
+        FLAGS=FLAGS
     )    
     
     flattened_structure = nest.flatten(structure)
@@ -313,11 +309,12 @@ def train():
         
         tf.logging.info('Creating actor with config')
         
-        env = create_environment()
+        env = create_environment(DEFAULT_CONFIG)
         
         actor_output = build_actor(
-            agent,
-            env
+            agent=agent,
+            env=env,
+            FLAGS=FLAGS
         )
         
         # Append the actor outputs to the 
@@ -375,8 +372,10 @@ def train():
       )
 
       # Create batch (time major) and recreate structure.
-      dequeued = queue.dequeue_many(FLAGS.batch_size)
+      dequeued = queue.dequeue_many(1)
       dequeued = nest.pack_sequence_as(structure, dequeued)
+    #   dequeued = queue.dequeue()
+    #   dequeued = nest.pack_sequence_as(structure, dequeued)
 
       def make_time_major(s):
         return nest.map_structure(
@@ -390,6 +389,8 @@ def train():
           agent_outputs=make_time_major(dequeued.agent_outputs)
       )
 
+      print(dequeued)
+      print("="*75)
       # 
       with tf.device('/gpu'):
         flattened_output = nest.flatten(dequeued)
@@ -435,10 +436,10 @@ def train():
 
         # Unroll agent on sequence, create losses and update ops.
         output = build_learner(
-          agent, 
-          data_from_actors.agent_state,          
-          data_from_actors.env_outputs,
-          data_from_actors.agent_outputs
+          agent=agent,         
+          env_outputs=data_from_actors.env_outputs,
+          agent_outputs=data_from_actors.agent_outputs,
+          FLAGS=FLAGS
         )
 
     # Create MonitoredSession (to run the graph, checkpoint and log).
@@ -521,7 +522,7 @@ def test(action_set, level_names):
     agent = Agent(len(action_set))
     outputs = {}
     for level_name in level_names:
-      env = create_environment(level_name, seed=1, is_test=True)
+      env = create_environment(DEFAULT_CONFIG)
       outputs[level_name] = build_actor(agent, env, level_name, action_set)
 
     with tf.train.SingularMonitoredSession(
