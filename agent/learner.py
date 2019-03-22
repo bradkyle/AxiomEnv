@@ -58,16 +58,22 @@ def build_learner(agent, env_outputs, agent_outputs, FLAGS):
     A tuple of (done, infos, and environment frames) where
     the environment frames tensor causes an update.
     """
-    print("="*70)
-    print(env_outputs)
-    print("="*70)
-    print(agent_outputs.action)
-    print("="*70)
 
     learner_outputs = agent.unroll(
         agent_outputs.action,
         env_outputs
     )
+
+    print("="*70)
+    print("ENV:")
+    print(env_outputs)
+    print("="*70)
+    print("AGENT:")
+    print(agent_outputs)
+    print("LEARNER:")
+    print(learner_outputs)
+    print("="*70)
+
 
     # TODO why?
     # Use last baseline value 
@@ -86,7 +92,7 @@ def build_learner(agent, env_outputs, agent_outputs, FLAGS):
         agent_outputs
     )
 
-    rewards, infos, done, _ = nest.map_structure(
+    rewards, infos, done, _, _ = nest.map_structure(
         lambda t: t[1:], 
         env_outputs
     )
@@ -102,9 +108,8 @@ def build_learner(agent, env_outputs, agent_outputs, FLAGS):
         clipped_rewards = tf.clip_by_value(rewards, -1, 1)
     elif FLAGS.reward_clipping == 'soft_asymmetric':
         squeezed = tf.tanh(rewards / 5.0)
-    
-    # Negative rewards are given less weight than positive rewards.
-    clipped_rewards = tf.where(rewards < 0, .3 * squeezed, squeezed) * 5.
+        # Negative rewards are given less weight than positive rewards.
+        clipped_rewards = tf.where(rewards < 0, .3 * squeezed, squeezed) * 5.
 
     discounts = tf.to_float(~done) * FLAGS.discounting
     
@@ -163,12 +168,12 @@ def build_learner(agent, env_outputs, agent_outputs, FLAGS):
     # Merge updating the network and environment frames into a single tensor.
     with tf.control_dependencies([train_op]):
         num_env_frames_and_train = num_env_frames.assign_add(
-            FLAGS.batch_size * FLAGS.unroll_length * FLAGS.num_action_repeats
+            FLAGS.batch_size * FLAGS.unroll_length
         )
 
     # Adding a few summaries.
     tf.summary.scalar('learning_rate', learning_rate)
     tf.summary.scalar('total_loss', total_loss)
-    tf.summary.histogram('action', agent_outputs.action)
+    # tf.summary.histogram('action', agent_outputs.action)
 
     return done, infos, num_env_frames_and_train

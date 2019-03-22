@@ -13,11 +13,11 @@ def build_actor(agent, env, FLAGS):
   """Builds the actor loop."""
   # Initial values.
   initial_env_output, initial_env_state = env.initial()
-  initial_action = tf.zeros([FLAGS.asset_num+1], dtype=tf.float32)
+  initial_action = tf.zeros(FLAGS.asset_num+1, dtype=tf.float32)
 
   dummy_agent_output = agent((
-       initial_action,
-       initial_env_output
+       tf.expand_dims(initial_action,0),
+       nest.map_structure(lambda t: tf.expand_dims(t, 0), initial_env_output)
   ))
 
   initial_agent_output = nest.map_structure(
@@ -57,12 +57,17 @@ def build_actor(agent, env, FLAGS):
   def step(input_, unused_i):
         env_state, env_output, agent_output = input_
 
-        action = agent_output[0]
+        print(agent_output)
+
+        batched_env_output = nest.map_structure(
+            lambda t: tf.expand_dims(t, 0),
+            env_output
+        )
 
         # TODO update
         new_agent_output = agent((
-            action, 
-            env_output
+            agent_output.action, 
+            batched_env_output
         ))
 
         # TODO remove first element of array in tensor
@@ -89,11 +94,16 @@ def build_actor(agent, env, FLAGS):
   # The control dependency ensures that the final agent and environment states
   # and outputs are stored in `persistent_state` (to initialize next unroll).
   with tf.control_dependencies(nest.flatten(assign_ops)):
-    # Remove the batch dimension from the agent state/output.
-    # first_agent_state = nest.map_structure(
-    #     lambda t: t[0],
-    #     first_agent_state
-    # )
+    # Remove the batch dimension from the agent output.
+    first_agent_output = nest.map_structure(
+        lambda t: t[0], 
+        first_agent_output
+    )
+
+    agent_outputs = nest.map_structure(
+        lambda t: t[:, 0], 
+        agent_outputs
+    )
 
     # Concatenate first output and the unroll along the time dimension.
     full_agent_outputs, full_env_outputs = nest.map_structure(

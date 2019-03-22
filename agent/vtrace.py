@@ -36,8 +36,14 @@ nest = tf.contrib.framework.nest
 
 VTraceFromLogitsReturns = collections.namedtuple(
     'VTraceFromLogitsReturns',
-    ['vs', 'pg_advantages', 'log_rhos',
-     'behaviour_action_log_probs', 'target_action_log_probs'])
+    [
+      'vs', 
+      'pg_advantages', 
+      'log_rhos',
+      'behaviour_action_log_probs', 
+      'target_action_log_probs'
+    ]
+)
 
 VTraceReturns = collections.namedtuple('VTraceReturns', 'vs pg_advantages')
 
@@ -63,15 +69,25 @@ def log_probs_from_logits_and_actions(policy_logits, actions):
     dtype=tf.float32
   )
 
+  #
   actions = tf.convert_to_tensor(
     actions, 
-    dtype=tf.int32
+    dtype=tf.float32
   )
 
+  print("="*70)
+  print(policy_logits.get_shape())
+  print(actions.get_shape())
+  print("="*70)
+
   policy_logits.shape.assert_has_rank(3)
-  actions.shape.assert_has_rank(2)
+  actions.shape.assert_has_rank(3)
 
   # TODO change
+  # Measures the probability error in discrete classification tasks in 
+  # which the classes are mutually exclusive (each entry is in exactly
+  # one class). For example, each CIFAR-10 image is labeled with one and 
+  # only one label: an image can be a dog or a truck, but not both.
   return -tf.nn.sparse_softmax_cross_entropy_with_logits(
       logits=policy_logits, 
       labels=actions
@@ -108,12 +124,12 @@ def from_logits(
   NUM_ACTIONS refers to the number of actions.
 
   Args:
-    behaviour_policy_logits: A float32 tensor of shape [T, B, NUM_ACTIONS] with
+    behaviour_policy_logits: A float32 tensor of shape [T, B, NUM_ASSETS] with
       un-normalized log-probabilities parametrizing the softmax behaviour
       policy.
-    target_policy_logits: A float32 tensor of shape [T, B, NUM_ACTIONS] with
+    target_policy_logits: A float32 tensor of shape [T, B, NUM_ASSETS] with
       un-normalized log-probabilities parametrizing the softmax target policy.
-    actions: An int32 tensor of shape [T, B] of actions sampled from the
+    actions: An float32 tensor of shape [T, B, NUM_ASSETS] sampled from the
       behaviour policy.
     discounts: A float32 tensor of shape [T, B] with the discount encountered
       when following the behaviour policy.
@@ -156,14 +172,14 @@ def from_logits(
 
   actions = tf.convert_to_tensor(
     actions, 
-    dtype=tf.int32
+    dtype=tf.float32
   )
 
   # Make sure tensor ranks are as expected.
   # The rest will be checked by from_action_log_probs.
   behaviour_policy_logits.shape.assert_has_rank(3)
   target_policy_logits.shape.assert_has_rank(3)
-  actions.shape.assert_has_rank(2)
+  actions.shape.assert_has_rank(3)
 
   with tf.name_scope(
     name, 
@@ -179,20 +195,29 @@ def from_logits(
   ):
 
     # TODO change
-    target_action_log_probs = log_probs_from_logits_and_actions(
-        target_policy_logits, 
-        actions
-    )
+    # returns the sampling log probability of the actions for the
+    # target policy
+    # target_action_log_probs = log_probs_from_logits_and_actions(
+    #     target_policy_logits, 
+    #     actions
+    # )
 
-    # TODO change
-    behaviour_action_log_probs = log_probs_from_logits_and_actions(
-        behaviour_policy_logits, 
-        actions
-    )
+    # # TODO change
+    # # returns the sampling log probability of the actions for the behavioral
+    # # policy
+    # behaviour_action_log_probs = log_probs_from_logits_and_actions(
+    #     behaviour_policy_logits, 
+    #     actions
+    # )
 
-    log_rhos = target_action_log_probs - behaviour_action_log_probs
+    # The difference between the sampling probability of the behavioral
+    # policy and the target policy representing the log
+    # importance sampling weights
+    # log_rhos = target_action_log_probs - behaviour_action_log_probs
+    log_rhos = target_policy_logits - behaviour_policy_logits
 
-
+    print("=+="*30)
+    print(log_rhos)
 
     vtrace_returns = from_importance_weights(
         log_rhos=log_rhos,
@@ -226,12 +251,12 @@ def from_importance_weights(
 
   In the notation used throughout documentation and comments, T refers to the
   time dimension ranging from 0 to T-1. B refers to the batch size and
-  NUM_ACTIONS refers to the number of actions. This code also supports the
+  NUM_ASSETS refers to the number of assets. This code also supports the
   case where all tensors have the same number of additional dimensions, e.g.,
   `rewards` is [T, B, C], `values` is [T, B, C], `bootstrap_value` is [B, C].
 
   Args:
-    log_rhos: A float32 tensor of shape [T, B, NUM_ACTIONS] representing the log
+    log_rhos: A float32 tensor of shape [T, B, NUM_ASSETS] representing the log
       importance sampling weights, i.e.
       log(target_policy(a) / behaviour_policy(a)). V-trace performs operations
       on rhos in log-space for numerical stability.
@@ -317,7 +342,9 @@ def from_importance_weights(
       bootstrap_value
     ]
   ):
+    # Computes exponential of x element-wise.
     rhos = tf.exp(log_rhos)
+
     if clip_rho_threshold is not None:
       clipped_rhos = tf.minimum(
         clip_rho_threshold, 

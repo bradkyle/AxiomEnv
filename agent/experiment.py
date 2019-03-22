@@ -372,10 +372,8 @@ def train():
       )
 
       # Create batch (time major) and recreate structure.
-      dequeued = queue.dequeue_many(1)
+      dequeued = queue.dequeue_many(2)
       dequeued = nest.pack_sequence_as(structure, dequeued)
-    #   dequeued = queue.dequeue()
-    #   dequeued = nest.pack_sequence_as(structure, dequeued)
 
       def make_time_major(s):
         return nest.map_structure(

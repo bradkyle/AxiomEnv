@@ -35,36 +35,44 @@ class Agent(snt.AbstractModule):
         last_action, env_output = input_
         reward, _, _, frame, prev_w = env_output
 
+        network = tflearn.layers.conv_2d(
+                incoming=frame, 
+                nb_filter=3,
+                filter_size=[1,2],
+                strides=[1,1],
+                padding="valid",
+                activation="relu",
+                regularizer=None,
+                weight_decay=0.0,
+                name="convlayer"
+        ) 
+
+        network = network[:, :, 0, 0]
+
+        policy_logits = snt.Linear(
+            self.asset_num+1, 
+            name='policy_logits'
+        )(network)
+
+        print(policy_logits.get_shape())
+
         return AgentOutput(
-            last_action, 
-            tf.expand_dims(tf.zeros([self.asset_num+1], dtype=tf.float32),0), 
-            tf.zeros([1], dtype=tf.float32)
+            policy_logits, 
+            policy_logits,
+            tf.zeros(last_action.get_shape()[0], dtype=tf.float32)
         )
 
 
     def _build(self, input_):
         action, env_output = input_
-
-        actions, env_outputs = nest.map_structure(
-            lambda t: tf.expand_dims(t, 0),
-            (action, env_output)
-        )
-
-        print("="*70)
-        print(actions)
-        print("="*70)
         
-        outputs = self.unroll(
-            actions, 
-            env_outputs
-        )
+        outputs = self._torso((
+            action, 
+            env_output
+        ))
 
-        return nest.map_structure(
-            lambda t: tf.squeeze(t, 0), 
-            outputs
-        )
-
+        return outputs
 
     @snt.reuse_variables
     def unroll(self, actions, env_outputs):
-        return snt.BatchApply(self._torso, n_dims=1)((actions, env_outputs))
+        return snt.BatchApply(self._torso, n_dims=2)((actions, env_outputs))

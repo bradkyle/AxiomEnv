@@ -89,7 +89,6 @@ StepOutput = collections.namedtuple(
   'reward info done feature_frame pv'
 )
 
-
 class FlowEnvironment(object):
   """An environment that returns a new state for every modifying method.
 
