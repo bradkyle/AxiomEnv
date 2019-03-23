@@ -2,7 +2,14 @@ import requests
 import six.moves.urllib.parse as urlparse
 import json
 import os
+
+import os,sys,inspect
+currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+parentdir = os.path.dirname(currentdir)
+sys.path.insert(0,parentdir) 
+
 import constants.rest as rest_const
+import constants.environment as env_const
 
 import logging
 logger = logging.getLogger(__name__)
@@ -48,15 +55,11 @@ class Client(object):
 
     def buffer_ready(self, window_size):
         route = '/buffer/ready/{}/'.format(window_size)
-        resp = self._get_request(route)
-        is_ready = resp['is_ready']
-        return is_ready
+        return self._get_request(route)
 
     def buffer_size(self):
         route = '/buffer/size/'
-        resp = self._get_request(route)
-        size = resp['size']
-        return size
+        return self._get_request(route)
 
     def get_state(
         self,
@@ -74,29 +77,21 @@ class Client(object):
             sp=selection_period,
             sm=selection_method
         )
-        resp = self._post_request(route, data)
-        feature_frame = resp['instance_id']
-        assets = resp['assets']
-        return assets, feature_frame
+        return self._post_request(route, data)
 
     def get_state_from_assets(
         self,
         window_size,
         feature_number,
-        selection_period,
-        selection_method
+        assets
     ):
         route = '/state/{ws}/{fn}/{sp}/{sm}'
         route = route.format(
             ws=window_size,
-            fn=feature_number,
-            sp=selection_period,
-            sm=selection_method
+            fn=feature_number
         )
         data = {'assets': assets}
-        resp = self._post_request(route, data)
-        feature_frame = resp['feature_frame']
-        return feature_frame
+        return self._post_request(route, data)
 
     def env_create(
         self, 
@@ -104,77 +99,35 @@ class Client(object):
     ):
         route = '/envs/'
 
-        if not type(config) is dict:
+        if not type(config) is env_const.EnvConfig:
             raise ValueError()
 
-        data = {
-            'quote_asset': config['quote_asset'],
-            'commission': config['commission'],
-            'feature_num': config['feature_num'],
-            'asset_num': config['asset_num'],
-            'window_size': config['window_size'],
-            'selection_period': config['selection_period'],
-            'selection_method': config['selection_method'],
-            'balance_init': config['balance_init'],
-            'env_type': config['env_type']
-        }
-        resp = self._post_request(route, data)
-        instance_id = resp['instance_id']
-        return instance_id
+        data = config._asdict()
+        return self._post_request(route, data)['instance_id']
 
     def env_list_all(self):
         route = '/envs/'
-        resp = self._get_request(route)
-        all_envs = resp['envs']
-        return all_envs
+        return self._get_request(route)['envs']
 
     def env_reset(self, instance_id):
         route = '/envs/{}/reset/'.format(instance_id)
         resp = self._post_request(route, None)
-        feature_frame = resp['feature_frame']
-        pv = resp['pv']
-        assets = resp['assets']
-        return [feature_frame, pv, assets]
+        return env_const.StateOutput(**resp)
 
     def env_step(self, instance_id, action):
         route = '/envs/{}/step/'.format(instance_id)
         data = {'action': action}
         resp = self._post_request(route, data)
-        feature_frame = resp['feature_frame']
-        pv = resp['pv']
-        assets = resp['assets']
-        return [
-            assets,
-            feature_frame, 
-            current_pv, 
-            tnorm,
-            profit
-        ]
+        return env_const.RawStepOutput(**resp)
 
     def env_state(self, instance_id):
         route = '/envs/{}/state/'.format(instance_id)
         resp = self._get_request(route)
-        pv = resp['pv']
-        assets = resp['assets']
-        current_pv = resp['current_pv']
-        pv_values = resp['pv_values']
-        pv_prices = resp['pv_prices']
-        feature_frame = resp['feature_frame']
-        tnorm = resp['tnorm']
-        return [
-            assets, 
-            feature_frame, 
-            current_pv, 
-            pv_prices, 
-            pv_values, 
-            tnorm
-        ]
+        return env_const.StateOutput(**resp)
 
     def env_info(self, instance_id):
         route = '/envs/{}/action_space/'.format(instance_id)
-        resp = self._get_request(route)
-        info = resp['info']
-        return info
+        return self._get_request(route)
 
     def env_close(self, instance_id):
         route = '/envs/{}/close/'.format(instance_id)

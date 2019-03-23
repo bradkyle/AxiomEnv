@@ -71,17 +71,16 @@ class _TFProxy(object):
       kwargs = dict(
         zip(
           function_utils.fn_args(
-            getattr(self._type, name
-            )
+            getattr(self._type, name)
           )[1:],
           args
         )
       )
+      
       specs = self._type._tensor_specs(name, kwargs, self._constructor_kwargs)
 
       if specs is None:
-        raise ValueError(
-            'No tensor specifications were provided for: %s' % name)
+        raise ValueError('No tensor specifications were provided for: %s' % name)
 
       flat_dtypes = nest.flatten(nest.map_structure(lambda s: s.dtype, specs))
       flat_shapes = nest.flatten(nest.map_structure(lambda s: s.shape, specs))
@@ -155,16 +154,20 @@ class _TFProxy(object):
           in_.close()
           return
 
-        method_name = str(serialized[0])
+        method_name = str(serialized[0].decode('utf-8'))
         inputs = serialized[1:]
 
         # Compute result.
         results = getattr(o, method_name)(*inputs)
-        if results is not None:
-          results = nest.flatten(results)
+
+        results = nest.map_structure(
+            lambda t: tf.cast(t, tf.float32),
+            results
+        )
 
         # Respond.
         in_.send(results)
+        
     except Exception as e:
       if 'o' in locals() and hasattr(o, 'close'):
         try:

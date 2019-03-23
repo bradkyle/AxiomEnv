@@ -8,6 +8,12 @@ import logging
 logger = logging.getLogger('werkzeug')
 logger.setLevel(logging.ERROR)
 
+import os,sys,inspect
+currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+parentdir = os.path.dirname(currentdir)
+sys.path.insert(0,parentdir) 
+
+import constants.environment as env_const
 from server.exceptions import InvalidUsage, RouteNotFound
 from environment.buffer import Buffer
 from environment.test_buffer import TestBuffer
@@ -133,33 +139,16 @@ async def get_state_from_assets(request):
 
 ########## API environment definitions ##########
 
+# TODO json.dumps(fb._asdict())
+
 async def env_create(request):
     try:
         json = request.json
     except JSONDecodeError:
         pass
 
-    quote_asset = get_required_param(json, 'quote_asset')
-    commission = get_required_param(json, 'commission')
-    feature_num = get_required_param(json, 'feature_num')
-    asset_num = get_required_param(json, 'asset_num')
-    window_size = get_required_param(json, 'window_size')
-    selection_period = get_required_param(json, 'selection_period')
-    selection_method = get_required_param(json, 'selection_method')
-    balance_init = get_required_param(json, 'balance_init')
-    env_type = get_required_param(json, 'env_type')
-
-    instance_id = await registry.create(
-        quote_asset=quote_asset,
-        commission=commission,
-        feature_num=feature_num,
-        asset_num=asset_num,
-        window_size=window_size,
-        selection_period=selection_period,
-        selection_method=selection_method,
-        balance_init=balance_init,
-        env_type=env_type
-    )
+    config = env_const.EnvConfig(**json)
+    instance_id = await registry.create(config)
 
     return request.Response(json={
         'instance_id':instance_id
@@ -175,15 +164,11 @@ async def env_list_all(request):
 async def env_reset(request):
     p = request.match_dict
 
-    pv, ff, a = await registry.reset(
+    output = await registry.reset(
         instance_id=p['instance_id']
     )
 
-    return request.Response(json={
-        'feature_frame':ff,
-        'pv':pv,
-        'assets':a
-    })
+    return request.Response(json=output._asdict())
 
 async def env_step(request):
     p = request.match_dict
@@ -201,45 +186,22 @@ async def env_step(request):
     if not isinstance(action, list):
         raise InvalidUsage("Action should be a list");
 
-    [
-        assets,
-        feature_frame, 
-        current_pv, 
-        tnorm,
-        profit
-    ] = await registry.step(
+    output = await registry.step(
         instance_id=p['instance_id'],
         action=action
     )
 
-    return request.Response(json={
-        'feature_frame':ff,
-        'pv': cpv, 
-        'assets':a
-    })
+    return request.Response(json=output._asdict())
 
+# TODO named tuples
 async def env_state(request):
     p = request.match_dict
 
-    [
-        assets,
-        feature_frame,
-        current_pv,
-        pv_prices,
-        pv_values,
-        tnorm
-    ] = await registry.state(
+    output = await registry.state(
         instance_id=p['instance_id']
     )
 
-    return request.Response(json={
-        'assets':assets,
-        'feature_frame': feature_frame, 
-        'current_pv':current_pv,
-        'pv_prices':pv_prices,
-        'pv_values':pv_values,
-        'tnorm': tnorm
-    })
+    return request.Response(json=output._asdict())
 
 async def env_info(request):
     p = request.match_dict

@@ -11,6 +11,13 @@ from client.client import Client
 
 nest = tf.contrib.framework.nest
 
+import os,sys,inspect
+currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+parentdir = os.path.dirname(currentdir)
+sys.path.insert(0,parentdir) 
+
+import constants.environment as env_const
+
 class PyProcessExchEnv(object):
   """DeepMind Lab wrapper for PyProcess."""
 
@@ -18,41 +25,28 @@ class PyProcessExchEnv(object):
     self, 
     config,
     remote_base="http://localhost:5000"
-    ):
-
+  ):
     self.client = Client(remote_base)
-    self.instance_id = client.env_create(config)
+    self.instance_id = self.client.env_create(config)
 
   def _reset(self):
-    self.client.reset(self.instance_id)
+    self.client.env_reset(self.instance_id)
 
   def _observation(self):
-    [
-        assets, 
-        feature_frame, 
-        current_pv, 
-        pv_prices, 
-        pv_values, 
-        tnorm
-    ] =  self.client.env_state(self.instance_id)
-    return feature_frame, current_pv
+    output =  self.client.env_state(self.instance_id)
+    return output.feature_frame, output.current_pv
 
   def initial(self):
     self._reset()
     return self._observation()
 
   def step(self, action):
-    [
-      assets,
-      feature_frame, 
-      current_pv, 
-      tnorm,
-      reward
-    ] = self.client.env_step(
+    print("STEP")
+    output = self.client.env_step(
       self.instance_id, 
       action
     )
-    return feature_frame, current_pv, reward
+    return output.feature_frame, output.current_pv, output.reward
 
   def close(self):
     self.client.close(self.instance_id)
@@ -60,9 +54,9 @@ class PyProcessExchEnv(object):
   @staticmethod
   def _tensor_specs(method_name, unused_kwargs, constructor_kwargs):
     """Returns a nest of `TensorSpec` with the method's output specification."""
-    feature_num = constructor_kwargs['config'].get('feature_num', 3)
-    asset_num = constructor_kwargs['config'].get('asset_num', 50)
-    window_size = constructor_kwargs['config'].get('window_size', 90)
+    feature_num = constructor_kwargs['config'].feature_num
+    asset_num = constructor_kwargs['config'].asset_num
+    window_size = constructor_kwargs['config'].window_size
 
     observation_spec = [
         tf.contrib.framework.TensorSpec([feature_num, asset_num, window_size], tf.float32), # feature_frame
@@ -77,17 +71,6 @@ class PyProcessExchEnv(object):
           tf.contrib.framework.TensorSpec([], tf.float32),
           tf.contrib.framework.TensorSpec([], tf.bool),
       )
-
-
-StepOutputInfo = collections.namedtuple(
-  'StepOutputInfo',
-  'episode_return episode_step'
-)
-
-StepOutput = collections.namedtuple(
-  'StepOutput',
-  'reward info done feature_frame pv'
-)
 
 class FlowEnvironment(object):
   """An environment that returns a new state for every modifying method.
@@ -121,12 +104,12 @@ class FlowEnvironment(object):
     """
     with tf.name_scope('flow_environment_initial'):
       initial_reward = tf.constant(0.)
-      initial_info = StepOutputInfo(tf.constant(0.), tf.constant(0))
+      initial_info = env_const.StepOutputInfo(tf.constant(0.), tf.constant(0))
       initial_done = tf.constant(True)
-      
+
       initial_feature_frame, initial_pv = self._env.initial()
 
-      initial_output = StepOutput(
+      initial_output = env_const.StepOutput(
           initial_reward,
           initial_info,
           initial_done,
@@ -141,9 +124,6 @@ class FlowEnvironment(object):
       initial_state = (initial_flow, initial_info)
       
       return initial_output, initial_state
-
-  def subscribe(self, action, state):
-    pass
 
   def step(self, action, state):
     """Takes a step in the environment.
@@ -172,7 +152,7 @@ class FlowEnvironment(object):
 
       # When done, include the reward in the output info but not in the
       # state for the next step.
-      new_info = StepOutputInfo(
+      new_info = env_const.StepOutputInfo(
         info.episode_return + reward,
         info.episode_step + 1
       )
@@ -187,11 +167,11 @@ class FlowEnvironment(object):
       # output in row-major order.
       new_state = new_flow, nest.map_structure(
           lambda a, b: tf.where(False, a, b),
-          StepOutputInfo(tf.constant(0.), tf.constant(0)),
+          env_const.StepOutputInfo(tf.constant(0.), tf.constant(0)),
           new_info
       )
 
-      output = StepOutput(
+      output = env_const.StepOutput(
         reward, 
         new_info, 
         done, 

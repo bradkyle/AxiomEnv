@@ -157,6 +157,7 @@ class Buffer():
         selection_period,
         selection_method="s2vol"
     ):
+        print("Getting state")
         last_time = await self.get_last_time()
 
         # Derive the start time as a function of the 

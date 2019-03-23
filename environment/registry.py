@@ -41,48 +41,11 @@ class Registry(object):
         except KeyError:
             raise InvalidUsage('Instance_id {} unknown'.format(instance_id))
 
-    async def create(
-        self,
-        quote_asset,
-        commission,
-        step_rate,
-        feature_num,
-        asset_num,
-        window_size,
-        selection_period,
-        selection_method,
-        balance_init,
-        env_type
-        ):
+    # TODO fix with __init__ and registered environments
+    async def create(self,config):
         try:
-            if env_type == "sandbox":
-                env = SandboxEnv(
-                    buffer=self.buffer,
-                    quote_asset=quote_asset,
-                    commission=commission,
-                    step_rate=step_rate,
-                    asset_num=asset_num,
-                    window_size=window_size,
-                    feature_num=feature_num,
-                    selection_period=selection_period,
-                    selection_method=selection_method,
-                    balance_init=balance_init
-                )
-            elif env_type == "test":
-                env = SandboxEnv(
-                    buffer=self.buffer,
-                    quote_asset=quote_asset,
-                    commission=commission,
-                    step_rate=step_rate,
-                    asset_num=asset_num,
-                    window_size=window_size,
-                    feature_num=feature_num,
-                    selection_period=selection_period,
-                    selection_method=selection_method,
-                    balance_init=balance_init
-                )
-            else:
-                raise InvalidUsage("Invalid env type: "+env_type)
+            env = SandboxEnv(self.buffer,config)
+            await env.setup()
         except Exception as e:
             raise InvalidUsage(str(e))
 
@@ -95,18 +58,15 @@ class Registry(object):
 
     async def reset(self, instance_id):
         env = self._lookup_env(instance_id)
-        pv, ff, a = await env.reset()
-        return pv, ff, a
+        return await env.reset()
 
     async def step(self, instance_id, action):
         env = self._lookup_env(instance_id)
-        pv, ff, a = await env.step(action)
-        return pv, ff, a
-
-    async def step(self, instance_id, action):
+        return await env.step(action)
+        
+    async def state(self, instance_id):
         env = self._lookup_env(instance_id)
-        pv, ff, a = await env.state(action)
-        return pv, ff, a
+        return await env.state()
 
     async def close(self, instance_id):
         env = self._lookup_env(instance_id)

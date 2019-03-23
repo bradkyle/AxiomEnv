@@ -37,6 +37,7 @@ import tensorflow as tf
 import vtrace
 from actor import build_actor
 from learner import build_learner
+import constants.environment as env_const
 
 try:
   import dynamic_batching
@@ -74,6 +75,7 @@ flags.DEFINE_float('commission', 0.00075, 'Trading consumption') # todo randomiz
 flags.DEFINE_integer('feature_num', 3, 'Number of features')
 flags.DEFINE_integer('asset_num', 50, 'Number of assets to actively trade')
 flags.DEFINE_integer('window_size', 90, 'Size of the historical window')
+flags.DEFINE_integer('step_rate', 3, 'Amount of steps the agent takes per minute')
 flags.DEFINE_integer('selection_period', 90, 'Period over which assets should be selected')
 flags.DEFINE_integer('unroll_length', 1000, 'Number of steps an agent takes per episode')
 flags.DEFINE_integer('seed', 1, 'Random seed.')
@@ -135,20 +137,22 @@ AgentOutput = collections.namedtuple(
     'action policy_logits baseline'
 )
 
-DEFAULT_CONFIG = {
-    'quote_asset': FLAGS.quote_asset,
-    'commission': FLAGS.commission,
-    'feature_num':FLAGS.feature_num,
-    'asset_num':FLAGS.asset_num,
-    'window_size':FLAGS.window_size,
-    'selection_period':FLAGS.selection_period,
-    'selection_method':FLAGS.selection_method,
-    'balance_init':FLAGS.balance_init,
-    'env_type': FLAGS.env_type
-}
+DEFAULT_CONFIG = env_const.EnvConfig(
+    quote_asset=FLAGS.quote_asset,
+    commission=FLAGS.commission,
+    feature_num=FLAGS.feature_num,
+    asset_num=FLAGS.asset_num,
+    window_size=FLAGS.window_size,
+    selection_period=FLAGS.selection_period,
+    selection_method=FLAGS.selection_method,
+    init_balance=FLAGS.balance_init,
+    env_type=FLAGS.env_type,
+    step_rate=FLAGS.step_rate
+)
 
 def is_single_machine():
   return FLAGS.task == -1
+
 
 def create_environment(config, is_test=False):
   """Creates an exchange environment wrapped in a `FlowEnvironment`."""
@@ -480,32 +484,14 @@ def train():
         # 
         # =================================================================>
         
-        while num_env_frames_v < FLAGS.total_environment_frames:
-            
-          # 
+        while num_env_frames_v < FLAGS.total_environment_frames: 
           level_names_v, done_v, infos_v, num_env_frames_v, _ = session.run(
               (data_from_actors.level_name,) + output + (stage_op,)
           )
-        
-         
       else:
         # Execute actors (they just need to enqueue their output).
         while True:
           session.run(enqueue_ops)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # TODO run env step
@@ -556,3 +542,7 @@ def main(_):
 
 if __name__ == '__main__':
   tf.app.run()
+    # print("H"*90)
+    # print(wrappers.PyProcessExchEnv(DEFAULT_CONFIG).initial())
+    # print("H"*90)
+

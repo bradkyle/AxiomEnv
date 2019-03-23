@@ -1,31 +1,31 @@
 from enum import Enum
 import time
 
+import os,sys,inspect
+currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+parentdir = os.path.dirname(currentdir)
+sys.path.insert(0,parentdir) 
+
+import constants.environment as env_const
+
+# TODO add performance metrics!
 class SandboxEnv():
     def __init__(
         self,
         buffer,
-        quote_asset,
-        commission,
-        step_rate,
-        asset_num,
-        window_size,
-        feature_num,
-        selection_period,
-        selection_method,
-        balance_init
+        config
         ):
         
         self.buffer=buffer
-        self.quote_asset = quote_asset
-        self.commission = commission
-        self.step_rate = step_rate # Per minute
-        self.asset_num = asset_num
-        self.window_size = window_size
-        self.feature_num = feature_num
-        self.selection_period = selection_period
-        self.selection_method = selection_method
-        self.balance_init = balance_init
+        self.quote_asset = config.quote_asset
+        self.commission = config.commission
+        self.step_rate = config.step_rate # Per minute
+        self.asset_num = config.asset_num
+        self.window_size = config.window_size
+        self.feature_num = config.feature_num
+        self.selection_period = config.selection_period
+        self.selection_method = config.selection_method
+        self.balance_init = config.init_balance
         self.balances = {}
 
         self.prev_tnorm=0
@@ -33,6 +33,19 @@ class SandboxEnv():
         self.step_count=0
         self.prev_action_pv = [0]
         self.assets = None
+
+    async def setup(self):
+        print("Setting up environment")
+
+        _, assets = await self.buffer.get_state(
+            asset_num=self.asset_num,
+            window_size=self.window_size,
+            feature_num=self.feature_num,
+            selection_period=self.selection_period,
+            selection_method=self.selection_method
+        )
+
+        await self.init_balance(assets)
 
     async def step(self, action):
 
@@ -63,23 +76,11 @@ class SandboxEnv():
 
         profit = tnorm - self.prev_tnorm
 
-        feature_frame, assets = await self.buffer.get_state(
-            asset_num=self.asset_num,
-            window_size=self.window_size,
-            feature_num=self.feature_num,
-            selection_period=self.selection_period,
-            selection_method=self.selection_method
-        )
+        state = await self.state()
 
         self.assets = assets
 
-        return [
-            assets,
-            feature_frame, 
-            current_pv, 
-            tnorm,
-            profit
-        ]
+        return env_const.RawStepOutput()
 
     async def state(self):
         feature_frame, assets = await self.buffer.get_state(
@@ -105,43 +106,27 @@ class SandboxEnv():
             quote_asset=self.quote_asset
         )
 
-        return [
-            assets, 
-            feature_frame, 
-            current_pv, 
-            pv_prices, 
-            pv_values, 
-            tnorm
-        ]
-
-    async def act(self, action):
-        raise NotImplemented
+        return env_const.StateOutput(
+               assets=assets, 
+               feature_frame=feature_frame, 
+               current_pv=current_pv,
+               pv_prices=pv_prices,
+               pv_values=pv_values,
+               tnorm=tnorm
+        )
 
     async def reset(self):
-        feature_frame, assets = await self.buffer.get_state(
-            asset_num=self.asset_num,
-            window_size=self.window_size,
-            feature_num=self.feature_num,
-            selection_period=self.selection_period,
-            selection_method=self.selection_method
-        )
-
-        await self.init_balance(assets)
-
+        state = await self.state()
+        await self.init_balance(state.assets)
         pv = await self.derive_pv(
             self.quote_asset,
-            assets
+            state.assets
         )
-
-        return [
-            pv, 
-            feature_frame, 
-            assets
-        ] 
+        state = state._replace(current_pv=pv)
+        return state
 
     async def close(self):
         pass
-
 
     # 
     #======================================================================>
@@ -308,8 +293,18 @@ class SandboxEnv():
         else:
             raise KeyError("Balance for given asset does not exist")
 
-
+    # Performance Metrics
+    #======================================================================>
     
+    def sharpe_ratio():
+        pass
+
+    def exposure():
+        pass
+
+    def maximum_drawdown():
+        pass
+
 class Side(Enum):
      BUY = 1
      SELL = 2
