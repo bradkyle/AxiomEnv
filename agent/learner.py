@@ -41,6 +41,23 @@ def compute_policy_gradient_loss(logits, actions, advantages):
   
   return tf.reduce_sum(policy_gradient_loss_per_timestep)
 
+# TODO check logical consistency!
+def compute_policy_gradient_loss_from_normal_distribution(mus, sigmas, actions, advantages):
+    
+    norm_dist = tf.distributions.Normal(
+        loc=mus, 
+        scale=sigmas
+    )
+
+    advantages = tf.stop_gradient(
+      advantages
+    )
+
+    log_prob = norm_dist.log_prob(actions)
+    log_prob_rank = log_prob.shape.ndims
+    policy_gradient_loss_per_timestep = tf.reduce_sum(log_prob, log_prob_rank-1) * advantages
+
+    return tf.reduce_sum(policy_gradient_loss_per_timestep)
 
 def build_learner(agent, env_outputs, agent_outputs, FLAGS):
     """
@@ -64,18 +81,6 @@ def build_learner(agent, env_outputs, agent_outputs, FLAGS):
         env_outputs
     )
 
-    print("="*70)
-    print("ENV:")
-    print(env_outputs)
-    print("="*70)
-    print("AGENT:")
-    print(agent_outputs)
-    print("LEARNER:")
-    print(learner_outputs)
-    print("="*70)
-
-
-    # TODO why?
     # Use last baseline value 
     # (from the value function) to bootstrap.
     bootstrap_value = learner_outputs.baseline[-1]
@@ -117,22 +122,25 @@ def build_learner(agent, env_outputs, agent_outputs, FLAGS):
     # Note, this is put on the CPU because it's faster than on GPU. It can be
     # improved further with XLA-compilation or with a custom TensorFlow operation.
     with tf.device('/cpu'):
-        vtrace_returns = vtrace.from_logits(
-            behaviour_policy_logits=agent_outputs.policy_logits,
-            target_policy_logits=learner_outputs.policy_logits,
+        vtrace_returns = vtrace.from_normal_distribution(
+            behavior_policy_mus=agent_outputs.mu,
+            behavior_policy_sigmas=agent_outputs.sigma,
+            target_policy_mus=learner_outputs.mu,
+            target_policy_sigmas=learner_outputs.sigma,
             actions=agent_outputs.action,
             discounts=discounts,
-            rewards=clipped_rewards,
+            rewards=rewards,
             values=learner_outputs.baseline,
-            bootstrap_value=bootstrap_value
+            bootstrap_value=bootstrap_value,
         )
 
     # Compute loss as a weighted sum of the baseline loss, the policy gradient
     # loss and an entropy regularization term.
-    total_loss = compute_policy_gradient_loss(
-      learner_outputs.policy_logits,
-      agent_outputs.action,
-      vtrace_returns.pg_advantages
+    total_loss = compute_policy_gradient_loss_from_normal_distribution(
+        mus=learner_outputs.mu,
+        sigmas=learner_outputs.sigma,
+        actions=agent_outputs.action,
+        advantages=vtrace_returns.pg_advantages
     )
 
     total_loss += FLAGS.baseline_cost * compute_baseline_loss(

@@ -386,9 +386,6 @@ def train():
           env_outputs=make_time_major(dequeued.env_outputs),
           agent_outputs=make_time_major(dequeued.agent_outputs)
       )
-
-      print(dequeued)
-      print("="*75)
       # 
       with tf.device('/gpu'):
         flattened_output = nest.flatten(dequeued)

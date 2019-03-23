@@ -7,7 +7,13 @@ nest = tf.contrib.framework.nest
 
 AgentOutput = collections.namedtuple(
     'AgentOutput',
-    'action policy_logits baseline'
+    [
+        'action',
+        'policy_logits',
+        'baseline',
+        'mu',
+        'sigma'
+    ]
 )
 
 class Agent(snt.AbstractModule):
@@ -49,17 +55,40 @@ class Agent(snt.AbstractModule):
 
         network = network[:, :, 0, 0]
 
-        policy_logits = snt.Linear(
-            self.asset_num+1, 
-            name='policy_logits'
-        )(network)
+        w_init = tf.random_uniform_initializer(-0.005, 0.005)
 
-        print(policy_logits.get_shape())
+        action = tf.layers.dense(
+            network, 
+            self.asset_num, 
+            activation=tf.nn.softmax, 
+            kernel_initializer=w_init
+        )
+
+        mu = tf.layers.dense(
+            network, 
+            self.asset_num, 
+            activation=tf.nn.tanh, 
+            kernel_initializer=w_init
+        )
+
+        sigma = tf.layers.dense(
+            network, 
+            self.asset_num, 
+            activation=tf.nn.softplus, 
+            kernel_initializer=w_init
+        )
+
+        baseline = tf.squeeze(
+            snt.Linear(1, name='baseline')(network), 
+            axis=-1
+        )
 
         return AgentOutput(
-            policy_logits, 
-            policy_logits,
-            tf.zeros(last_action.get_shape()[0], dtype=tf.float32)
+            action=action, 
+            policy_logits=action,
+            baseline=baseline,
+            mu=mu,
+            sigma=sigma
         )
 
 

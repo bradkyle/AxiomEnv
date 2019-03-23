@@ -53,11 +53,8 @@ def build_actor(agent, env, FLAGS):
 
   first_env_state, first_env_output, first_agent_output = first_values
 
-   # TODO add pause 
   def step(input_, unused_i):
         env_state, env_output, agent_output = input_
-
-        print(agent_output)
 
         batched_env_output = nest.map_structure(
             lambda t: tf.expand_dims(t, 0),
