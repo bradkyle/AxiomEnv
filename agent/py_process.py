@@ -165,6 +165,8 @@ class _TFProxy(object):
             results
         )
 
+        print("hello")
+
         # Respond.
         in_.send(results)
         

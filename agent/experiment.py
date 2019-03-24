@@ -40,7 +40,7 @@ from learner import build_learner
 import constants.environment as env_const
 
 try:
-  import dynamic_batching
+  import agent.dynamic_batching
 except tf.errors.NotFoundError:
   tf.logging.warning('Running without dynamic batching.')
 
@@ -244,8 +244,6 @@ def train():
     dtypes = [t.dtype for t in flattened_structure]
     shapes = [t.shape.as_list() for t in flattened_structure]
 
-
-
   with tf.Graph().as_default(), \
        tf.device(local_job_device + '/cpu'), \
        pin_global_variables(global_variable_device):
@@ -287,7 +285,7 @@ def train():
         commission=FLAGS.commission
       )
         
-      if is_single_machine() and 'dynamic_batching' in sys.modules:
+      if is_single_machine() and 'dynamic_batching' in sys.modules:        
         # For single machine training, we use dynamic batching for improved GPU
         # utilization. The semantics of single machine training are slightly
         # different from the distributed setting because within a single unroll
@@ -390,7 +388,7 @@ def train():
           env_outputs=make_time_major(dequeued.env_outputs),
           agent_outputs=make_time_major(dequeued.agent_outputs)
       )
-      # 
+      
       with tf.device('/gpu'):
         flattened_output = nest.flatten(dequeued)
         # Using StagingArea allows us to prepare the next batch and send it to
@@ -443,7 +441,17 @@ def train():
 
     # Create MonitoredSession (to run the graph, checkpoint and log).
     tf.logging.info('Creating MonitoredSession, is_chief %s', is_learner)
-    config = tf.ConfigProto(allow_soft_placement=True, device_filters=filters)
+
+    gpu_options = tf.GPUOptions(
+        per_process_gpu_memory_fraction=0.2
+    )
+
+    config = tf.ConfigProto(
+        allow_soft_placement=True, 
+        device_filters=filters,
+        gpu_options=gpu_options,
+        log_device_placement=True
+    )
 
 
     # RUN GRAPH
@@ -474,6 +482,8 @@ def train():
         summary_writer = tf.summary.FileWriterCache.get(FLAGS.logdir)
 
         # Prepare data for first run.
+        tf.logging.info('Preparing data for first run')
+
         session.run_step_fn(
             lambda step_context: step_context.session.run(stage_op)
         )
@@ -483,13 +493,14 @@ def train():
 
         # 
         # =================================================================>
-        
+        tf.logging.info('Comencing run')
         while num_env_frames_v < FLAGS.total_environment_frames: 
           level_names_v, done_v, infos_v, num_env_frames_v, _ = session.run(
               (data_from_actors.level_name,) + output + (stage_op,)
           )
       else:
         # Execute actors (they just need to enqueue their output).
+        tf.logging.info('Running enqueue ops')
         while True:
           session.run(enqueue_ops)
 

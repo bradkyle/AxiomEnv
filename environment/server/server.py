@@ -139,8 +139,6 @@ async def get_state_from_assets(request):
 
 ########## API environment definitions ##########
 
-# TODO json.dumps(fb._asdict())
-
 async def env_create(request):
     try:
         json = request.json
@@ -240,9 +238,6 @@ r.add_route('/envs/{instance_id}/step/', env_step, methods=['POST'])
 r.add_route('/envs/{instance_id}/state/', env_state, methods=['GET'])
 r.add_route('/envs/{instance_id}/info/', env_info, methods=['GET'])
 r.add_route('/envs/{instance_id}/close/', env_close, methods=['POST'])
-
-
-
 
 # TODO change
 if __name__ == '__main__':

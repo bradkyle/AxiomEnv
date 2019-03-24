@@ -20,5 +20,8 @@ runs:
 runi:
 	python ingress/features_ingress.py
 
+runp:
+	python ingress/prices_ingress.py
+
 runa:
 	python agent/experiment.py

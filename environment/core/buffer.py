@@ -80,7 +80,7 @@ class Buffer():
 
         return first_time
 
-    async def get_frame(start, last_time, assets):
+    async def get_frame(self, start, last_time, assets):
                 # Create an index for the time range
         time_index = pd.to_datetime(list(range(start, round(last_time), 60)),unit='s')
         time_index = time_index.round('min')
@@ -310,7 +310,7 @@ class Buffer():
         .get(symbol)\
         .pluck('price')\
         .values()\
-        .run(conn)
+        .run(self.conn)
         return res[0]
 
     async def has_symbol_info(self, symbol):
@@ -318,4 +318,4 @@ class Buffer():
         .get_all(symbol)\
         .count()\
         .eq(1)\
-        .run(conn)
+        .run(self.conn)
