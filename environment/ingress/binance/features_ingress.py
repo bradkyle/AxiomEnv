@@ -130,3 +130,13 @@ class FeaturesIngress(Ingress):
         bids = [{'price':float(l[0]), 'quantity':float(l[1])} for l in data['bids']]
         asks = [{'price':float(l[0]), 'quantity':float(l[1])} for l in data['asks']]
         return bids, asks
+
+if __name__ == '__main__':
+    # TODO create binance features table
+    parser = argparse.ArgumentParser(description='Run scripts for managing the rethinkdb database')    
+    parser.add_argument('-q', '--quote', help='The quote asset to aggregate data for', default='BTC')
+    args = parser.parse_args()
+
+    agent = Binance(args.quote)
+
+    agent.run()
