@@ -152,6 +152,13 @@ async def env_create(request):
         'instance_id':instance_id
     })
 
+async def env_list_available(request):
+    available_envs = await registry.list_available()
+
+    return request.Response(json={
+        'envs': available_envs
+    })
+
 async def env_list_all(request):
     all_envs = await registry.list_all()
 

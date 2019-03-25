@@ -25,7 +25,6 @@ class Ingress():
         self.db = r_db
         self.host = r_host
         self.port = r_port
-        self.interval = interval
         self.maintain_every = maintain_every
 
         self.conn = r.connect(
