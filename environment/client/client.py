@@ -8,8 +8,8 @@ currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentfram
 parentdir = os.path.dirname(currentdir)
 sys.path.insert(0,parentdir) 
 
-import constants.rest as rest_const
-import constants.environment as env_const
+import environment.constants.rest as rest_const
+import environment.constants.environment as env_const
 
 import logging
 logger = logging.getLogger(__name__)

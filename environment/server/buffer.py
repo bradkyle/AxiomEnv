@@ -76,7 +76,7 @@ class Buffer():
             .pluck('startTime')\
             .run(self.conn)
 
-        first_time = (last_event_time['startTime']+1)/1000
+        first_time = (first_event_time['startTime']+1)/1000
 
         return first_time
 

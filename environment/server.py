@@ -3,6 +3,7 @@ import os
 import asyncio
 from japronto import Application
 import constants.rest as rest_const
+import argparse
 
 import logging
 logger = logging.getLogger('werkzeug')
@@ -15,9 +16,9 @@ sys.path.insert(0,parentdir)
 
 import constants.environment as env_const
 from server.exceptions import InvalidUsage, RouteNotFound
-from environment.buffer import Buffer
-from environment.test_buffer import TestBuffer
-from environment.registry import Registry
+from server.buffer import Buffer
+from server.test_buffer import TestBuffer
+from server.registry import Registry
 
 ########## App setup ##########
 app = Application()
@@ -87,6 +88,7 @@ app.add_error_handler(RouteNotFound, handle_not_found)
 
 async def is_buffer_ready(request):
     p = request.match_dict
+    print(p)
     ready = await buffer.is_ready(p.window_size)
     return request.Response(json={
         'is_ready':ready
@@ -232,7 +234,7 @@ async def env_close(request):
 ########## API route definitions ##########
 
 r.add_route('/buffer/ready/{window_size}/', is_buffer_ready, methods=['GET'])
-r.add_route('/buffer/size/', is_buffer_ready, methods=['GET'])
+r.add_route('/buffer/size/', buffer_size, methods=['GET'])
 
 r.add_route('/state/{an}/{ws}/{fn}/{sp}/{sm}', get_state, methods=['GET'])
 r.add_route('/state/{ws}/{fn}/{sp}/{sm}', get_state_from_assets, methods=['POST'])
@@ -256,5 +258,6 @@ if __name__ == '__main__':
     print('Server starting at: ' + 'http://{}:{}'.format(args.listen, args.port))
     app.run(
         host=args.listen,
-        port=args.port
+        port=args.port,
+        debug=True
     )

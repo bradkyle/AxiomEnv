@@ -1,13 +1,11 @@
-from flask import Flask, request, jsonify
 import uuid
 import numpy as np
 import six
 import argparse
 import sys
 import json
-from server.server import InvalidUsage
-from environment.sandbox import SandboxEnv
-
+from server.exceptions import InvalidUsage
+from server.envs.sandbox import SandboxEnv
 
 import logging
 logger = logging.getLogger('werkzeug')

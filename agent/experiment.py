@@ -28,8 +28,8 @@ import collections
 import contextlib
 import functools
 
-from agent.dev_agent import Agent
-import client.wrappers as wrappers
+from agent.agent import Agent
+import environment.client.wrappers as wrappers
 import numpy as np
 import py_process
 import sonnet as snt
@@ -37,7 +37,7 @@ import tensorflow as tf
 import vtrace
 from actor import build_actor
 from learner import build_learner
-import constants.environment as env_const
+import environment.constants.environment as env_const
 
 try:
   import agent.dynamic_batching
@@ -450,7 +450,7 @@ def train():
         allow_soft_placement=True, 
         device_filters=filters,
         gpu_options=gpu_options,
-        log_device_placement=True
+        # log_device_placement=True
     )
 
 

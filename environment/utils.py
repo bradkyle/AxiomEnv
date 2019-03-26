@@ -9,9 +9,9 @@ parentdir = os.path.dirname(currentdir)
 sys.path.insert(0,parentdir) 
 
 import constants.db as db_const
-from environment.utils.create import create
-from environment.utils.drop import drop
-from environment.utils.flush import flush
+from utils.create import create
+from utils.drop import drop
+from utils.flush import flush
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run scripts for managing the rethinkdb database')
@@ -42,9 +42,6 @@ if __name__ == '__main__':
     elif args.run=="maintain":
         while True:
             time.sleep(args.flush_interval)
-            try:
-                flush(conn, args.cutoff)
-            except:
-                print("Error occurred")
+            flush(conn, args.cutoff)
     else:
         print("Please select a method to run")

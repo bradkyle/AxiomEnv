@@ -1,5 +1,4 @@
 FROM python:3.6
 ADD ./ /code
 WORKDIR /code
-RUN ls -a
-RUN pip install -r ./environment/ingress_requirements.txt
+RUN pip install -r ./ingress/ingress_requirements.txt

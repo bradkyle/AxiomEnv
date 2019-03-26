@@ -7,7 +7,7 @@ import numpy as np
 import tensorflow as tf
 
 import collections
-from client.client import Client
+from environment.client.test_client import Client
 
 nest = tf.contrib.framework.nest
 
@@ -16,7 +16,7 @@ currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentfram
 parentdir = os.path.dirname(currentdir)
 sys.path.insert(0,parentdir) 
 
-import constants.environment as env_const
+import environment.constants.environment as env_const
 
 class PyProcessExchEnv(object):
   """DeepMind Lab wrapper for PyProcess."""

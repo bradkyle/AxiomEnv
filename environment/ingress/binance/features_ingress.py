@@ -10,16 +10,29 @@ sys.path.insert(0,parentdir)
 
 import constants.fields as fields
 import constants.db as db_const
-from environment.ingress.ingress import Ingress 
+from ingress.core import Ingress 
 
 class FeaturesIngress(Ingress):
     def __init__(
         self,
         quote_asset='BTC',
         levels=20,
-        interval='1m'
+        interval='1m',
+        r_host=db_const.DB_HOST,
+        r_port=db_const.DB_PORT,
+        r_user=db_const.DB_USER,
+        r_pass=db_const.DB_PASS,
+        r_db=db_const.DB_NAME
     ):
-        Ingress.__init__(self)
+        Ingress.__init__(
+            self,
+            r_host=r_host,
+            r_port=r_port,
+            r_user=r_user,
+            r_pass=r_pass,
+            r_db=r_db
+        )
+        
         self.ASKS = {};
         self.BIDS  = {};
 
@@ -144,8 +157,8 @@ class FeaturesIngress(Ingress):
                     price,
                     conflict="replace"
                 ).run(self.conn)
-        except:
-            print("An exception occurred")
+        except Exception as e:
+            print(e)
 
     def get_depth(self, data):
         bids = [{'price':float(l[0]), 'quantity':float(l[1])} for l in data['bids']]

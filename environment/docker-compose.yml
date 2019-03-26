@@ -15,7 +15,7 @@ services:
       dockerfile: ./ingress/Dockerfile-ingress
       args:
         buildno: 1
-    command: python ./environment/utils.py --run setup
+    command: python ./utils.py --run setup
     depends_on: 
       - rethinkdb
 
@@ -25,43 +25,43 @@ services:
       dockerfile: ./ingress/Dockerfile-ingress
       args:
         buildno: 1
-    command: python ./environment/ingress.py --quote BTC
+    command: python ./ingress.py --quote BTC
     depends_on: 
       - rethinkdb
       - rethinkdb_setup
 
-  binance_eth_features_ingress:
-    build:
-      context: ./
-      dockerfile: ./ingress/Dockerfile-ingress
-      args:
-        buildno: 1
-    command: python ./environment/ingress.py --quote ETH
-    depends_on: 
-      - rethinkdb
-      - rethinkdb_setup
+  # binance_eth_features_ingress:
+  #   build:
+  #     context: ./
+  #     dockerfile: ./ingress/Dockerfile-ingress
+  #     args:
+  #       buildno: 1
+  #   command: python ./environment/ingress.py --quote ETH
+  #   depends_on: 
+  #     - rethinkdb
+  #     - rethinkdb_setup
 
-  binance_bnb_features_ingress:
-    build:
-      context: ./
-      dockerfile: ./ingress/Dockerfile-ingress
-      args:
-        buildno: 1
-    command: python ./environment/ingress.py --quote BNB
-    depends_on: 
-      - rethinkdb
-      - rethinkdb_setup
+  # binance_bnb_features_ingress:
+  #   build:
+  #     context: ./
+  #     dockerfile: ./ingress/Dockerfile-ingress
+  #     args:
+  #       buildno: 1
+  #   command: python ./environment/ingress.py --quote BNB
+  #   depends_on: 
+  #     - rethinkdb
+  #     - rethinkdb_setup
 
-  binance_usdt_features_ingress:
-    build:
-      context: ./
-      dockerfile: ./ingress/Dockerfile-ingress
-      args:
-        buildno: 1
-    command: python ./environment/ingress.py --quote USDT
-    depends_on: 
-      - rethinkdb
-      - rethinkdb_setup
+  # binance_usdt_features_ingress:
+  #   build:
+  #     context: ./
+  #     dockerfile: ./ingress/Dockerfile-ingress
+  #     args:
+  #       buildno: 1
+  #   command: python ./environment/ingress.py --quote USDT
+  #   depends_on: 
+  #     - rethinkdb
+  #     - rethinkdb_setup
 
   db_maintain:
     build:
@@ -69,22 +69,24 @@ services:
       dockerfile: ./ingress/Dockerfile-ingress
       args:
         buildno: 1
-    command: python ./environment/utils.py --run maintain
+    command: python ./utils.py --run maintain
     depends_on: 
       - rethinkdb
       - rethinkdb_setup
 
-  server:
-    build:
-      context: ./
-      dockerfile: ./server/Dockerfile-server
-      args:
-        buildno: 1
-    volumes:
-     - /app/folder:/app
-    command: python ./server/server.py
-    ports:
-     - "5000:5000"
-    depends_on: 
-      - rethinkdb
-      - rethinkdb_setup
+  # server:
+  #   build:
+  #     context: ./
+  #     dockerfile: ./server/Dockerfile-server
+  #     args:
+  #       buildno: 1
+  #   volumes:
+  #    - /app/folder:/app
+  #   command: python ./server.py
+  #   ports:
+  #    - "5000:5000"
+  #   depends_on: 
+  #     - rethinkdb
+  #     - rethinkdb_setup
+
+  # TODO run integration tests
