@@ -1,0 +1,5 @@
+FROM python:3.6
+ADD ./ /code
+WORKDIR /code
+RUN ls -a
+RUN pip install -r ./environment/server_requirements.txt

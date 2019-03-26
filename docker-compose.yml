@@ -1,0 +1,90 @@
+version: '3'
+services:
+  rethinkdb:
+    image: rethinkdb
+    ports:
+     - 8080:8080
+     - 28015:28015
+     - 29015:29015
+    volumes:
+     - ${PWD}/data:/data
+
+  rethinkdb_setup:
+    build:
+      context: ./
+      dockerfile: Dockerfile-ingress
+      args:
+        buildno: 1
+    command: python ./environment/utils.py --run setup
+    depends_on: 
+      - rethinkdb
+
+  binance_btc_features_ingress:
+    build:
+      context: ./
+      dockerfile: Dockerfile-ingress
+      args:
+        buildno: 1
+    command: python ./environment/main.py --quote BTC
+    depends_on: 
+      - rethinkdb
+      - rethinkdb_setup
+
+  binance_eth_features_ingress:
+    build:
+      context: ./
+      dockerfile: Dockerfile-ingress
+      args:
+        buildno: 1
+    command: python ./environment/main.py --quote ETH
+    depends_on: 
+      - rethinkdb
+      - rethinkdb_setup
+
+  binance_bnb_features_ingress:
+    build:
+      context: ./
+      dockerfile: Dockerfile-ingress
+      args:
+        buildno: 1
+    command: python ./environment/main.py --quote BNB
+    depends_on: 
+      - rethinkdb
+      - rethinkdb_setup
+
+  binance_usdt_features_ingress:
+    build:
+      context: ./
+      dockerfile: Dockerfile-ingress
+      args:
+        buildno: 1
+    command: python ./environment/main.py --quote USDT
+    depends_on: 
+      - rethinkdb
+      - rethinkdb_setup
+
+  db_maintain:
+    build:
+      context: ./
+      dockerfile: Dockerfile-ingress
+      args:
+        buildno: 1
+    command: python ./environment/maintain.py
+    depends_on: 
+      - rethinkdb
+      - rethinkdb_setup
+
+  # server:
+  #   build:
+  #     context: ./
+  #     dockerfile: Dockerfile-server
+  #     args:
+  #       buildno: 1
+  #   volumes:
+  #    - /app/folder:/app
+  #   command: python ./server/server.py
+  #   ports:
+  #    - "5000:5000"
+  #   depends_on: 
+  #     - rethinkdb
+  #     - rethinkdb_setup
