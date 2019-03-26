@@ -1,3 +1,0 @@
-
-REST_HOST="localhost"
-REST_PORT=5000

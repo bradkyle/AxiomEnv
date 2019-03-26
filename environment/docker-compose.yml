@@ -12,7 +12,7 @@ services:
   rethinkdb_setup:
     build:
       context: ./
-      dockerfile: Dockerfile-ingress
+      dockerfile: ./ingress/Dockerfile-ingress
       args:
         buildno: 1
     command: python ./environment/utils.py --run setup
@@ -22,10 +22,10 @@ services:
   binance_btc_features_ingress:
     build:
       context: ./
-      dockerfile: Dockerfile-ingress
+      dockerfile: ./ingress/Dockerfile-ingress
       args:
         buildno: 1
-    command: python ./environment/main.py --quote BTC
+    command: python ./environment/ingress.py --quote BTC
     depends_on: 
       - rethinkdb
       - rethinkdb_setup
@@ -33,10 +33,10 @@ services:
   binance_eth_features_ingress:
     build:
       context: ./
-      dockerfile: Dockerfile-ingress
+      dockerfile: ./ingress/Dockerfile-ingress
       args:
         buildno: 1
-    command: python ./environment/main.py --quote ETH
+    command: python ./environment/ingress.py --quote ETH
     depends_on: 
       - rethinkdb
       - rethinkdb_setup
@@ -44,10 +44,10 @@ services:
   binance_bnb_features_ingress:
     build:
       context: ./
-      dockerfile: Dockerfile-ingress
+      dockerfile: ./ingress/Dockerfile-ingress
       args:
         buildno: 1
-    command: python ./environment/main.py --quote BNB
+    command: python ./environment/ingress.py --quote BNB
     depends_on: 
       - rethinkdb
       - rethinkdb_setup
@@ -55,10 +55,10 @@ services:
   binance_usdt_features_ingress:
     build:
       context: ./
-      dockerfile: Dockerfile-ingress
+      dockerfile: ./ingress/Dockerfile-ingress
       args:
         buildno: 1
-    command: python ./environment/main.py --quote USDT
+    command: python ./environment/ingress.py --quote USDT
     depends_on: 
       - rethinkdb
       - rethinkdb_setup
@@ -66,25 +66,25 @@ services:
   db_maintain:
     build:
       context: ./
-      dockerfile: Dockerfile-ingress
+      dockerfile: ./ingress/Dockerfile-ingress
       args:
         buildno: 1
-    command: python ./environment/maintain.py
+    command: python ./environment/utils.py --run maintain
     depends_on: 
       - rethinkdb
       - rethinkdb_setup
 
-  # server:
-  #   build:
-  #     context: ./
-  #     dockerfile: Dockerfile-server
-  #     args:
-  #       buildno: 1
-  #   volumes:
-  #    - /app/folder:/app
-  #   command: python ./server/server.py
-  #   ports:
-  #    - "5000:5000"
-  #   depends_on: 
-  #     - rethinkdb
-  #     - rethinkdb_setup
+  server:
+    build:
+      context: ./
+      dockerfile: ./server/Dockerfile-server
+      args:
+        buildno: 1
+    volumes:
+     - /app/folder:/app
+    command: python ./server/server.py
+    ports:
+     - "5000:5000"
+    depends_on: 
+      - rethinkdb
+      - rethinkdb_setup

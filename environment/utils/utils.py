@@ -1,5 +1,6 @@
 import argparse
 import rethinkdb as r
+import time
 
 # Add the ptdraft folder path to the sys.path list
 import os,sys,inspect
@@ -19,6 +20,7 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--port', help='The rethinkdb port to connect to', default=db_const.DB_PORT)
     parser.add_argument('-d', '--db', help='The rethinkdb database to connect to', default=db_const.DB_NAME)
     parser.add_argument('-c', '--cutoff', help='The cutoff period for old records', default=db_const.CUTOFF_PERIOD)
+    parser.add_argument('-fi', '--flush_interval', help='The amount of time between successive flushes', default=db_const.FLUSH_INTERVAL)
 
     args = parser.parse_args()
 
@@ -37,5 +39,12 @@ if __name__ == '__main__':
     elif args.run=="setup":
         drop(conn, args.db)
         create(conn, args.db)
+    elif args.run=="maintain":
+        while True:
+            time.sleep(args.flush_interval)
+            try:
+                flush(conn, args.cutoff)
+            except:
+                print("Error occurred")
     else:
         print("Please select a method to run")
