@@ -24,6 +24,7 @@ currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentfram
 parentdir = os.path.dirname(currentdir)
 sys.path.insert(0,parentdir) 
 
+import tensorflow as tf
 import collections
 import contextlib
 import functools
@@ -33,7 +34,6 @@ import environment.client.wrappers as wrappers
 import numpy as np
 import py_process
 import sonnet as snt
-import tensorflow as tf
 import vtrace
 from actor import build_actor
 from learner import build_learner
@@ -41,8 +41,10 @@ import environment.constants.environment as env_const
 
 try:
   import agent.dynamic_batching
-except tf.errors.NotFoundError:
+  tf.logging.info("Running with dynamic batching")
+except tf.errors.NotFoundError as e:
   tf.logging.warning('Running without dynamic batching.')
+  tf.logging.error(e)
 
 from six.moves import range
 
@@ -52,6 +54,9 @@ flags = tf.app.flags
 FLAGS = tf.app.flags.FLAGS
 
 flags.DEFINE_string('logdir', '/tmp/agent', 'TensorFlow log directory.')
+flags.DEFINE_integer('save_checkpoint_secs', 600, '')
+flags.DEFINE_integer('save_summaries_secs', 30, '')
+flags.DEFINE_integer('log_step_count_steps', 50000, '')
 flags.DEFINE_enum('mode', 'train', ['train', 'test'], 'Training or test mode.')
 
 # Flags used for testing.
@@ -66,18 +71,18 @@ flags.DEFINE_enum('job_name', 'learner', ['learner', 'actor'],
 flags.DEFINE_integer('total_environment_frames', int(1e9),
                      'Total environment frames to train for.')
 flags.DEFINE_integer('num_actors', 4, 'Number of actors.')
-flags.DEFINE_integer('batch_size', 3, 'Batch size for training.')
+flags.DEFINE_integer('batch_size', 2, 'Batch size for training.')
 
 # Environment
 flags.DEFINE_enum('quote_asset', 'BTC', ['BTC', 'BNB', 'ETH', 'USDT'], # todo randomize
                   'The default quote asset that the environment should use')
 flags.DEFINE_float('commission', 0.00075, 'Trading consumption') # todo randomize
 flags.DEFINE_integer('feature_num', 3, 'Number of features')
-flags.DEFINE_integer('asset_num', 50, 'Number of assets to actively trade')
-flags.DEFINE_integer('window_size', 90, 'Size of the historical window')
+flags.DEFINE_integer('asset_num', 15, 'Number of assets to actively trade')
+flags.DEFINE_integer('window_size', 10, 'Size of the historical window')
 flags.DEFINE_integer('step_rate', 3, 'Amount of steps the agent takes per minute')
 flags.DEFINE_integer('selection_period', 90, 'Period over which assets should be selected')
-flags.DEFINE_integer('unroll_length', 1000, 'Number of steps an agent takes per episode')
+flags.DEFINE_integer('unroll_length', 10, 'Number of steps an agent takes per episode')
 flags.DEFINE_integer('seed', 1, 'Random seed.')
 
 flags.DEFINE_enum(
@@ -137,6 +142,7 @@ AgentOutput = collections.namedtuple(
     'action policy_logits baseline'
 )
 
+
 DEFAULT_CONFIG = env_const.EnvConfig(
     quote_asset=FLAGS.quote_asset,
     commission=FLAGS.commission,
@@ -186,6 +192,7 @@ def train():
   """Train."""
 
   if is_single_machine():
+    tf.logging.info("Running on single machine")
     local_job_device = ''
     shared_job_device = ''
     is_actor_fn = lambda i: True
@@ -253,7 +260,6 @@ def train():
     # BUILD QUEUE
     # ===========================================================================>
     with tf.device(shared_job_device):
-      
       # A queue implementation that dequeues 
       # elements in first-in first-out order.
       # Creates a queue that dequeues elements
@@ -272,7 +278,7 @@ def train():
       # different queue elements may have different 
       # shapes, but the use of dequeue_many is disallowed.
       queue = tf.FIFOQueue(
-          capacity=1, 
+          capacity=100, 
           dtypes=dtypes, 
           shapes=shapes, 
           shared_name='buffer'
@@ -311,14 +317,16 @@ def train():
         
         tf.logging.info('Creating actor with config')
         
-        env = create_environment(DEFAULT_CONFIG)
+        env = create_environment(
+            DEFAULT_CONFIG
+        )
         
         actor_output = build_actor(
             agent=agent,
             env=env,
             FLAGS=FLAGS
         )
-        
+
         # Append the actor outputs to the 
         # FIFOQueue above in order to pass
         # the environment outputs and action
@@ -374,7 +382,7 @@ def train():
       )
 
       # Create batch (time major) and recreate structure.
-      dequeued = queue.dequeue_many(2)
+      dequeued = queue.dequeue_many(FLAGS.batch_size)
       dequeued = nest.pack_sequence_as(structure, dequeued)
 
       def make_time_major(s):
@@ -431,7 +439,8 @@ def train():
             area.get()
         )
 
-        # Unroll agent on sequence, create losses and update ops.
+        # Unroll agent on sequence, 
+        # create losses and update ops.
         output = build_learner(
           agent=agent,         
           env_outputs=data_from_actors.env_outputs,
@@ -442,21 +451,14 @@ def train():
     # Create MonitoredSession (to run the graph, checkpoint and log).
     tf.logging.info('Creating MonitoredSession, is_chief %s', is_learner)
 
-    gpu_options = tf.GPUOptions(
-        per_process_gpu_memory_fraction=0.2
-    )
-
     config = tf.ConfigProto(
         allow_soft_placement=True, 
-        device_filters=filters,
-        gpu_options=gpu_options,
-        # log_device_placement=True
+        device_filters=filters
     )
-
 
     # RUN GRAPH
     # ===========================================================================>
-    
+
     #Creates a MonitoredSession for training.
     # For a chief, this utility sets proper session 
     # initializer/restorer. It also creates hooks 
@@ -476,6 +478,8 @@ def train():
         hooks=[py_process.PyProcessHook()]
     ) as session:
 
+      tf.logging.info('Commencing training run')
+
       # If the agent is a learner
       if is_learner:
         # Logging.
@@ -485,7 +489,7 @@ def train():
         tf.logging.info('Preparing data for first run')
 
         session.run_step_fn(
-            lambda step_context: step_context.session.run(stage_op)
+            lambda step_context: step_context.session.run(actor_output)
         )
 
         # Execute learning and track performance.
@@ -493,16 +497,19 @@ def train():
 
         # 
         # =================================================================>
-        tf.logging.info('Comencing run')
         while num_env_frames_v < FLAGS.total_environment_frames: 
-          level_names_v, done_v, infos_v, num_env_frames_v, _ = session.run(
-              (data_from_actors.level_name,) + output + (stage_op,)
+          done_v, infos_v, num_env_frames_v, _ = session.run(
+              output + (stage_op,)
           )
+
+          # TODO add logging and metric storage
+
       else:
         # Execute actors (they just need to enqueue their output).
         tf.logging.info('Running enqueue ops')
         while True:
           session.run(enqueue_ops)
+
 
 
 # TODO run env step
@@ -543,7 +550,7 @@ def test(action_set, level_names):
 
 
 def main(_):
-  tf.logging.set_verbosity(tf.logging.INFO)
+  tf.logging.set_verbosity(tf.logging.DEBUG)
 
   if FLAGS.mode == 'train':
     train()
@@ -553,7 +560,4 @@ def main(_):
 
 if __name__ == '__main__':
   tf.app.run()
-    # print("H"*90)
-    # print(wrappers.PyProcessExchEnv(DEFAULT_CONFIG).initial())
-    # print("H"*90)
 

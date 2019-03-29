@@ -51,11 +51,14 @@ class Agent(snt.AbstractModule):
                 regularizer=None,
                 weight_decay=0.0,
                 name="convlayer"
-        ) 
+        )
 
         network = network[:, :, 0, 0]
 
-        w_init = tf.random_uniform_initializer(-0.005, 0.005)
+        w_init = tf.random_uniform_initializer(
+            -0.005, 
+            0.005
+        )
 
         action = tf.layers.dense(
             network, 

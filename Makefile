@@ -1,9 +1,10 @@
-integration:
-	python -m pytest test/
+integ:
+	python -m pytest ./environment/test/ -s
 
 pytest:
-	python -m pytest ./client/*_test.py ./environment/*_test.py\
-	 ./ingress/*_test.py ./server/*_test.py
+	python -m pytest ./environment/core/**/*_test.py \
+	  ./environment/core/*_test.py \
+	  ./environment/client/*_test.py  -s
 
 compose:
 	docker-compose build

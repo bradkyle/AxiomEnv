@@ -2,11 +2,16 @@ import tensorflow as tf
 import sonnet as snt
 nest = tf.contrib.framework.nest
 import collections
+import sys
+import numpy as np
 
 # Structure to be sent from actors to learner.
 ActorOutput = collections.namedtuple(
     'ActorOutput', 
-    'env_outputs agent_outputs'
+    [
+        'env_outputs',
+        'agent_outputs'
+    ]
 )
 
 def build_actor(agent, env, FLAGS):
@@ -17,7 +22,10 @@ def build_actor(agent, env, FLAGS):
 
   dummy_agent_output = agent((
        tf.expand_dims(initial_action,0),
-       nest.map_structure(lambda t: tf.expand_dims(t, 0), initial_env_output)
+       nest.map_structure(
+           lambda t: tf.expand_dims(t, 0),
+           initial_env_output
+       )
   ))
 
   initial_agent_output = nest.map_structure(
@@ -62,18 +70,18 @@ def build_actor(agent, env, FLAGS):
         )
 
         # TODO update
-        new_agent_output = agent((
+        agent_output = agent((
             agent_output.action, 
             batched_env_output
         ))
 
         # TODO remove first element of array in tensor
         env_output, env_state = env.step(
-            new_agent_output[0], 
+            agent_output[0], 
             env_state
         )
 
-        return env_state, env_output, new_agent_output
+        return env_state, env_output, agent_output
 
   output = tf.scan(
       step, 
@@ -83,11 +91,14 @@ def build_actor(agent, env, FLAGS):
 
   _, env_outputs, agent_outputs = output
 
+  # Update persistent state with the
+  # last output from the loop.
   assign_ops = nest.map_structure(
-      lambda v, t: v.assign(t[-1]),
-      persistent_state, 
-      output
+        lambda v, t: v.assign(t[-1]),
+        persistent_state, 
+        output
   )
+
   # The control dependency ensures that the final agent and environment states
   # and outputs are stored in `persistent_state` (to initialize next unroll).
   with tf.control_dependencies(nest.flatten(assign_ops)):

@@ -35,6 +35,7 @@ class FeaturesIngress(Ingress):
         
         self.ASKS = {};
         self.BIDS  = {};
+        self.FLAT_DEPTH = {}
 
         self.client = Client("", "")
         self.bm = BinanceSocketManager(self.client)
@@ -56,7 +57,7 @@ class FeaturesIngress(Ingress):
         self.set_conf()
         self.depth_key = self.bm.start_multiplex_socket(
             self.depth_ws_list,
-            self.process_depth
+            self.process_depth_flat
         )
         self.kline_key = self.bm.start_multiplex_socket(
             self.kline_ws_list,
@@ -88,10 +89,21 @@ class FeaturesIngress(Ingress):
             return False
 
     def process_depth(self, msg):
-        symbol = msg['stream'].replace(self.depth_ws_suffix, '').upper()
-        bids, asks = self.get_depth(msg['data'])
-        self.ASKS[symbol] = asks
-        self.BIDS[symbol] = bids
+        try:
+            symbol = msg['stream'].replace(self.depth_ws_suffix, '').upper()
+            bids, asks = self.derive_depth(msg['data'])
+            self.ASKS[symbol] = asks
+            self.BIDS[symbol] = bids
+        except Exception as e:
+            print(e)
+
+    def process_depth_flat(self, msg):
+        try:
+            symbol = msg['stream'].replace(self.depth_ws_suffix, '').upper()
+            flat_depth = self.derive_flat_depth(msg['data'])
+            self.FLAT_DEPTH[symbol] = flat_depth
+        except Exception as e:
+            print(e)
     
     def derive_base_asset(self, quote_asset, symbol):
         return symbol.replace(quote_asset, '')
@@ -104,6 +116,9 @@ class FeaturesIngress(Ingress):
 
     def get_bids(self, symbol):
         return self.BIDS[symbol]
+
+    def get_flat_depth(self, symbol):
+        return self.FLAT_DEPTH[symbol]
 
     def process_kline(self, msg):
         d = msg['data']
@@ -134,10 +149,13 @@ class FeaturesIngress(Ingress):
                     fields.QUOTE_ASSET_VOLUME: float(k['q']),
                     fields.TAKER_BUY_BASE_ASSET_VOLUME: float(k['V']),
                     fields.TAKER_BUY_QUOTE_ASSET_VOLUME: float(k['Q']),
-                    fields.IS_FINAL: k['x'],
-                    fields.ASKS: self.get_asks(k['s']),
-                    fields.BIDS: self.get_bids(k['s']),
+                    fields.IS_FINAL: k['x']
                 };
+
+                flat_depth = self.get_flat_depth(k['s'])
+
+                kline.update(flat_depth)
+
                 r.table(db_const.FEATURES_TABLE).insert(
                     kline,
                     conflict="replace"
@@ -157,11 +175,22 @@ class FeaturesIngress(Ingress):
                     price,
                     conflict="replace"
                 ).run(self.conn)
+
+                print("Inserted "+k['s'])
         except Exception as e:
             print(e)
 
-    def get_depth(self, data):
-        bids = [{'price':float(l[0]), 'quantity':float(l[1])} for l in data['bids']]
-        asks = [{'price':float(l[0]), 'quantity':float(l[1])} for l in data['asks']]
+    def derive_flat_depth(self, data):
+        flat_depth = {}
+        bids = [{'bid_price_'+str(i):float(d[0]), 'bid_quantity_'+str(i):float(d[1])} for (i, d) in enumerate(data['bids'])]
+        asks = [{'ask_price_'+str(i):float(d[0]), 'ask_quantity_'+str(i):float(d[1])} for (i, d) in enumerate(data['asks'])]
+        for bid, ask in zip(bids, asks):
+            flat_depth.update(bid)
+            flat_depth.update(ask)
+        return flat_depth
+
+    def derive_depth(self, data):
+        bids = [{'bid_price_'+str(i):float(l[0]), 'bid_quantity_'+str(i):float(l[1])} for (i, d) in enumerate(data['bids'])]
+        asks = [{'ask_price_'+str(i):float(l[0]), 'ask_quantity_'+str(i):float(l[1])} for (i, d) in enumerate(data['asks'])]
         return bids, asks
 

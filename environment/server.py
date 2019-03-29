@@ -15,10 +15,10 @@ parentdir = os.path.dirname(currentdir)
 sys.path.insert(0,parentdir) 
 
 import constants.environment as env_const
-from server.exceptions import InvalidUsage, RouteNotFound
-from server.buffer import Buffer
-from server.test_buffer import TestBuffer
-from server.registry import Registry
+from core.exceptions import InvalidUsage, RouteNotFound
+from core.buffer import Buffer
+from core.test_buffer import TestBuffer
+from core.registry import Registry
 
 ########## App setup ##########
 app = Application()
@@ -88,8 +88,7 @@ app.add_error_handler(RouteNotFound, handle_not_found)
 
 async def is_buffer_ready(request):
     p = request.match_dict
-    print(p)
-    ready = await buffer.is_ready(p.window_size)
+    ready = await buffer.is_ready(p['window_size'])
     return request.Response(json={
         'is_ready':ready
     })
@@ -101,15 +100,41 @@ async def buffer_size(request):
     })
 
 # TODO validate
+async def get_random_assets(request):
+    p = request.match_dict
+
+    assets = await buffer.get_random_assets(
+        asset_num=p['an']
+    )
+
+    return request.Response(json={
+        'assets': assets
+    })
+
+# TODO validate
+async def get_top_assets(request):
+    p = request.match_dict
+
+    assets = await buffer.get_top_assets(
+        asset_num=p['an'],
+        selection_period=p['sp'],
+        selection_method=p['sm']
+    )
+
+    return request.Response(json={
+        'assets': assets
+    })
+
+# TODO validate
 async def get_state(request):
     p = request.match_dict
 
-    feature_frame, assets = await buffer.get_state_from_assets(
-        asset_num=p.an,
-        window_size=p.ws,
-        feature_num=p.fn,
-        selection_period=p.sp,
-        selection_method=p.sm
+    feature_frame, assets = await buffer.get_state(
+        asset_num=p['an'],
+        window_size=p['ws'],
+        feature_num=p['fn'],
+        selection_period=p['sp'],
+        selection_method=p['sm']
     )
 
     return request.Response(json={
@@ -127,16 +152,17 @@ async def get_state_from_assets(request):
 
     assets = get_required_param(json, 'assets')
 
-    feature_frame = await buffer.get_state(
+    assert isinstance(assets, list)
+
+    feature_frame = await buffer.get_state_for_assets(
         assets=assets,
-        window_size=p.ws,
-        feature_num=p.fn,
-        selection_period=p.sp,
-        selection_method=p.sm
+        window_size=p['ws'],
+        feature_num=p['fn']
     )
 
     return request.Response(json={
-        'feature_frame':feature_frame
+        'feature_frame':feature_frame,
+        'assets': assets
     })
 
 ########## API environment definitions ##########
@@ -236,8 +262,11 @@ async def env_close(request):
 r.add_route('/buffer/ready/{window_size}/', is_buffer_ready, methods=['GET'])
 r.add_route('/buffer/size/', buffer_size, methods=['GET'])
 
-r.add_route('/state/{an}/{ws}/{fn}/{sp}/{sm}', get_state, methods=['GET'])
-r.add_route('/state/{ws}/{fn}/{sp}/{sm}', get_state_from_assets, methods=['POST'])
+r.add_route('/assets/{an}/{sp}/{sm}/', get_top_assets, methods=['GET'])
+r.add_route('/assets/random/{an}/', get_random_assets, methods=['GET'])
+
+r.add_route('/state/{an}/{ws}/{fn}/{sp}/{sm}/', get_state, methods=['GET'])
+r.add_route('/state/assets/{ws}/{fn}/', get_state_from_assets, methods=['POST'])
 
 r.add_route('/envs/', env_create, methods=['POST'])
 r.add_route('/envs/', env_list_all, methods=['GET'])

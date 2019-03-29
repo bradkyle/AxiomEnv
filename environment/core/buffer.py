@@ -7,8 +7,10 @@ import time
 import asyncio
 import constants.db as db_const
 import constants.fields as fields
+from pandas.io.json import json_normalize
 
 # TODO data normalization!
+# TODO rand 50
 # 
 
 class Buffer():
@@ -48,7 +50,7 @@ class Buffer():
 
     async def is_ready(self, window_size):
         size = await self.size()
-        if size <= window_size+1:
+        if size >= int(window_size)+1:
             return True
         else:
             return False
@@ -79,6 +81,56 @@ class Buffer():
         first_time = (first_event_time['startTime']+1)/1000
 
         return first_time
+
+    async def get_frame_complex(self, start, last_time, assets):
+                # Create an index for the time range
+        time_index = pd.to_datetime(list(range(start, round(last_time), 60)),unit='s')
+        time_index = time_index.round('min')
+
+        # Get the klines for this period
+        rec = r.table(self.feature_table)\
+        .between(
+            r.epoch_time(start),
+            r.epoch_time(last_time),
+            index='epochEventTime'
+        )\
+        .pluck(
+            'baseAsset',
+            'startTime',
+            'close',
+            'open',
+            'high',
+            'low',
+            'asks',
+            'bids'
+        )\
+        .filter(lambda doc:
+            r.expr(assets)
+                .contains(doc["baseAsset"])
+        )\
+        .run(self.conn)
+        
+        f = pd.DataFrame(rec)
+        f['startTime'] = pd.to_datetime(f['startTime'], unit='ms')
+        f.set_index(self.index_columns, inplace=True)
+        
+        # Reindex the dataframe based upon 
+        ind = pd.MultiIndex.from_product(
+            [
+                f.index.levels[0],
+                time_index
+            ],
+            names=self.index_columns
+        )    
+        f = f.reindex(ind)
+
+        f = json_normalize(f['asks'])
+        
+        # Fill non existent values
+        f=f.fillna(axis=0, method="ffill")\
+           .fillna(axis=0, method="bfill")
+        
+        return f
 
     async def get_frame(self, start, last_time, assets):
                 # Create an index for the time range
@@ -122,7 +174,7 @@ class Buffer():
         
         # Fill non existent values
         f=f.fillna(axis=0, method="ffill")\
-            .fillna(axis=0, method="bfill")
+           .fillna(axis=0, method="bfill")
         
         return f
 
@@ -136,7 +188,7 @@ class Buffer():
 
         # Derive the start time as a function of the 
         # end time minus the window size
-        start = round(last_time - ((window_size)*60))
+        start = round(last_time - (int(window_size)*60))
         
         f = await self.get_frame(
             start, 
@@ -157,16 +209,15 @@ class Buffer():
         selection_period,
         selection_method="s2vol"
     ):
-        print("Getting state")
         last_time = await self.get_last_time()
 
         # Derive the start time as a function of the 
         # end time minus the window size
-        start = round(last_time - ((window_size)*60))
-        selection_start = round(last_time - ((selection_period)*60))
+        start = round(last_time - (int(window_size)*60))
+        selection_start = round(last_time - (int(selection_period)*60))
         
-        assets = await self.get_top_assets(
-            asset_num,
+        assets = await self._get_top_assets(
+            int(asset_num),
             selection_start,
             last_time,
             selection_method
@@ -184,7 +235,38 @@ class Buffer():
         # TODO make sure order is the same
         return m, a
 
+    async def get_random_assets(
+        self,
+        asset_num
+    ):
+        return r.table(self.prices_table)\
+                .sample(int(asset_num))\
+                .pluck(fields.BASE_ASSET)\
+                .map(lambda a:a[fields.BASE_ASSET])\
+                .run(self.conn)
+
     async def get_top_assets(
+        self,
+        asset_num,
+        selection_period,
+        selection_method
+    ):
+        last_time = await self.get_last_time()
+
+        # Derive the start time as a function of the 
+        # end time minus the window size
+        selection_start = round(last_time - (int(selection_period)*60))
+
+        assets = await self._get_top_assets(
+            int(asset_num),
+            selection_start,
+            last_time,
+            selection_method
+        )
+
+        return assets
+
+    async def _get_top_assets(
         self,
         asset_num, 
         start_time,
@@ -304,7 +386,52 @@ class Buffer():
         .pluck('asset')\
         .map(lambda a:a['asset'])
 
-    
+    async def get_features(self, start, last_time, assets):
+        rec = r.table(self.feature_table)\
+        .between(
+            r.epoch_time(start),
+            r.epoch_time(last_time),
+            index=fields.EPOCH_EVENT_TIME
+        )\
+        .pluck(
+            fields.BASE_ASSET,
+            fields.QUOTE_ASSET,
+            fields.CLOSE,
+            fields.OPEN,
+            fields.HIGH,
+            fields.LOW,
+            fields.VOLUME,
+            fields.TRADES
+        )\
+        .filter(lambda doc:
+            r.expr(assets)
+                .contains(doc[fields.BASE_ASSET])
+        )\
+        .run(self.conn)
+
+    async def get_normalised_features(self, start, last_time, assets):
+        rec = r.table(self.feature_table)\
+        .between(
+            r.epoch_time(start),
+            r.epoch_time(last_time),
+            index=fields.EPOCH_EVENT_TIME
+        )\
+        .pluck(
+            fields.BASE_ASSET,
+            fields.QUOTE_ASSET,
+            fields.CLOSE,
+            fields.OPEN,
+            fields.HIGH,
+            fields.LOW,
+            fields.VOLUME,
+            fields.TRADES
+        )\
+        .filter(lambda doc:
+            r.expr(assets)
+                .contains(doc[fields.BASE_ASSET])
+        )\
+        .run(self.conn)
+
     async def get_last_price(self, symbol):
         res = r.table('prices')\
         .get(symbol)\
@@ -319,3 +446,39 @@ class Buffer():
         .count()\
         .eq(1)\
         .run(self.conn)
+
+    async def derive_features_from_num(
+        self,
+        feature_num
+    ):
+        if feature_num == 1:
+            return []
+        elif feature_num == 2:
+            pass
+        elif feature_num == 3:
+            pass
+        elif feature_num == 4:
+            pass
+        elif feature_num == 5:
+            pass
+        elif feature_num == 6:
+            pass
+        elif feature_num == 7:
+            pass
+        elif feature_num == 8:
+            pass
+        elif feature_num == 9:
+            pass
+        elif feature_num == 10:
+            pass
+        elif feature_num == 11:
+            pass
+        elif feature_num == 12:
+            pass
+        elif feature_num == 13:
+            pass
+        elif feature_num == 14:
+            pass
+        elif feature_num == 15:
+            pass
+            

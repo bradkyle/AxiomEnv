@@ -54,7 +54,6 @@ import tensorflow as tf
 
 from tensorflow.python.util import function_utils
 
-
 nest = tf.contrib.framework.nest
 
 
@@ -77,7 +76,11 @@ class _TFProxy(object):
         )
       )
       
-      specs = self._type._tensor_specs(name, kwargs, self._constructor_kwargs)
+      specs = self._type._tensor_specs(
+        name, 
+        kwargs, 
+        self._constructor_kwargs
+      )
 
       if specs is None:
         raise ValueError('No tensor specifications were provided for: %s' % name)
@@ -106,12 +109,16 @@ class _TFProxy(object):
         name=name
       )
 
+      # result = nest.flatten(result)
+
       if isinstance(result, tf.Operation):
         return result
 
       for t, shape in zip(result, flat_shapes):
         t.set_shape(shape)
-      return nest.pack_sequence_as(specs, result)
+
+      result = nest.pack_sequence_as(specs, result)
+      return result
     return call
 
   def _start(self):
@@ -138,6 +145,7 @@ class _TFProxy(object):
       pass
     self._process.join()
 
+  # TODO fix
   def _worker_fn(self, type_, constructor_kwargs, in_):
     try:
       o = type_(**constructor_kwargs)
@@ -159,13 +167,6 @@ class _TFProxy(object):
 
         # Compute result.
         results = getattr(o, method_name)(*inputs)
-
-        results = nest.map_structure(
-            lambda t: tf.cast(t, tf.float32),
-            results
-        )
-
-        print("hello")
 
         # Respond.
         in_.send(results)
@@ -202,7 +203,6 @@ class PyProcess(object):
 
   def start(self):
     self._proxy._start()
-
 
 class PyProcessHook(tf.train.SessionRunHook):
   """A MonitoredSession hook that starts and stops PyProcess instances."""

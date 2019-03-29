@@ -34,19 +34,26 @@ class PyProcessExchEnv(object):
 
   def _observation(self):
     output =  self.client.env_state(self.instance_id)
-    return output.feature_frame, output.current_pv
+    return (
+      np.float32(output.feature_frame), 
+      np.float32(output.current_pv)
+    )
 
   def initial(self):
     self._reset()
     return self._observation()
 
   def step(self, action):
-    print("STEP")
     output = self.client.env_step(
       self.instance_id, 
       action
     )
-    return output.feature_frame, output.current_pv, output.reward
+    return (
+      np.float32(output.feature_frame),
+      np.float32(output.current_pv),
+      np.float32(output.reward), 
+      output.done
+    )
 
   def close(self):
     self.client.close(self.instance_id)
@@ -58,19 +65,24 @@ class PyProcessExchEnv(object):
     asset_num = constructor_kwargs['config'].asset_num
     window_size = constructor_kwargs['config'].window_size
 
-    observation_spec = [
-        tf.contrib.framework.TensorSpec([feature_num, asset_num, window_size], tf.float32), # feature_frame
-        tf.contrib.framework.TensorSpec([asset_num], tf.float32) # prev_w, TODO add historic dimension
-    ]
+    feature_frame_spec = tf.contrib.framework.TensorSpec([feature_num, asset_num, window_size], tf.float32)
+    pv_spec = tf.contrib.framework.TensorSpec([asset_num], tf.float32)
+    reward_spec = tf.contrib.framework.TensorSpec([], tf.float32),
+    done_spec = tf.contrib.framework.TensorSpec([], tf.bool),
 
     if method_name == 'initial':
-      return observation_spec
+      return (
+        feature_frame_spec,
+        pv_spec
+      )
     elif method_name == 'step':
       return (
-          observation_spec,
-          tf.contrib.framework.TensorSpec([], tf.float32),
-          tf.contrib.framework.TensorSpec([], tf.bool),
+        feature_frame_spec,
+        pv_spec,
+        reward_spec,
+        done_spec          
       )
+
 
 class FlowEnvironment(object):
   """An environment that returns a new state for every modifying method.
@@ -110,11 +122,11 @@ class FlowEnvironment(object):
       initial_feature_frame, initial_pv = self._env.initial()
 
       initial_output = env_const.StepOutput(
-          initial_reward,
-          initial_info,
-          initial_done,
-          initial_feature_frame,
-          initial_pv
+          reward=initial_reward,
+          info=initial_info,
+          done=initial_done,
+          feature_frame=initial_feature_frame,
+          pv=initial_pv
       )
 
       # Control dependency to make sure the next step can't be taken before the
@@ -144,17 +156,24 @@ class FlowEnvironment(object):
 
       # Make sure the previous step has been executed before running the next
       # step.
+
       with tf.control_dependencies([flow]):
-        state, reward, done = self._env.step(action)
+        feature_frame, pv, reward, done = self._env.step(action)
 
       with tf.control_dependencies(nest.flatten(state)):
         new_flow = tf.add(flow, 1)
 
       # When done, include the reward in the output info but not in the
       # state for the next step.
+
       new_info = env_const.StepOutputInfo(
-        info.episode_return + reward,
+        tf.add(info.episode_return, reward[0]),
         info.episode_step + 1
+      )
+
+      default_info = env_const.StepOutputInfo(
+        tf.constant(0.), 
+        tf.constant(0)
       )
 
       # Return the elements, either from x or y, depending on the condition.
@@ -167,16 +186,16 @@ class FlowEnvironment(object):
       # output in row-major order.
       new_state = new_flow, nest.map_structure(
           lambda a, b: tf.where(False, a, b),
-          env_const.StepOutputInfo(tf.constant(0.), tf.constant(0)),
+          default_info,
           new_info
       )
 
       output = env_const.StepOutput(
-        reward, 
-        new_info, 
-        done, 
-        state[0],
-        state[1]
+        reward=reward[0], 
+        info=new_info, 
+        done=done[0], 
+        feature_frame=feature_frame,
+        pv=pv
       )
 
       return output, new_state

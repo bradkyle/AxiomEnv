@@ -9,7 +9,7 @@ parentdir = os.path.dirname(currentdir)
 sys.path.insert(0,parentdir) 
 
 import environment.constants.rest as rest_const
-import environment.constants.environment as env_const
+from environment.constants.environment import EnvConfig
 
 import logging
 logger = logging.getLogger(__name__)
@@ -55,11 +55,35 @@ class Client(object):
 
     def buffer_ready(self, window_size):
         route = '/buffer/ready/{}/'.format(window_size)
-        return self._get_request(route)
+        return self._get_request(route)['is_ready']
 
     def buffer_size(self):
         route = '/buffer/size/'
-        return self._get_request(route)
+        return self._get_request(route)['size']
+
+    def get_random_assets(
+        self,
+        asset_number
+    ):
+        route = '/assets/random/{an}/'
+        route = route.format(
+            an=asset_number
+        )
+        return self._get_request(route)['assets']
+
+    def get_top_assets(
+        self,
+        asset_number,
+        selection_period,
+        selection_method
+    ):
+        route = '/assets/{an}/{sp}/{sm}/'
+        route = route.format(
+            an=asset_number,
+            sp=selection_period,
+            sm=selection_method
+        )
+        return self._get_request(route)['assets']
 
     def get_state(
         self,
@@ -77,7 +101,7 @@ class Client(object):
             sp=selection_period,
             sm=selection_method
         )
-        return self._post_request(route, data)
+        return self._get_request(route)
 
     def get_state_from_assets(
         self,
@@ -85,7 +109,7 @@ class Client(object):
         feature_number,
         assets
     ):
-        route = '/state/{ws}/{fn}/{sp}/{sm}'
+        route = '/state/assets/{ws}/{fn}/'
         route = route.format(
             ws=window_size,
             fn=feature_number
@@ -98,9 +122,6 @@ class Client(object):
         config
     ):
         route = '/envs/'
-
-        if not type(config) is env_const.EnvConfig:
-            raise ValueError()
 
         data = config._asdict()
         return self._post_request(route, data)['instance_id']

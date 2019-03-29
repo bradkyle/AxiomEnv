@@ -4,8 +4,8 @@ import six
 import argparse
 import sys
 import json
-from server.exceptions import InvalidUsage
-from server.envs.sandbox import SandboxEnv
+from core.exceptions import InvalidUsage
+from core.envs.sandbox import SandboxEnv
 
 import logging
 logger = logging.getLogger('werkzeug')
@@ -52,6 +52,9 @@ class Registry(object):
         return instance_id
 
     async def list_all(self):
+        return [instance_id for (instance_id, env) in self.envs.items()]
+
+    async def list_dict(self):
         return dict([(instance_id, env.quote_asset) for (instance_id, env) in self.envs.items()])
 
     async def reset(self, instance_id):

@@ -6,6 +6,7 @@ import numpy as np
 import random
 from random import choices
 from string import ascii_lowercase
+import time
 
 import os,sys,inspect
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
@@ -40,17 +41,15 @@ class Client(object):
         return "dahweufhaweufhafiushf"
 
     def env_reset(self, instance_id):
-        m = np.random.rand(
+        m = np.zeros((
             self.config.feature_num,
             self.config.asset_num,
             self.config.window_size
-        ).tolist()
+        )).tolist()
 
-        pv = np.random.rand(
-            self.config.feature_num,
-            self.config.asset_num,
-            self.config.window_size
-        ).tolist()
+        pv = np.zeros((
+            self.config.asset_num
+        )).tolist()
 
         assets = ["".join(choices(ascii_lowercase, k=3)) for _ in range(self.config.asset_num)]
 
@@ -68,17 +67,15 @@ class Client(object):
     def env_step(self, instance_id, action):
         route = '/envs/{}/step/'.format(instance_id)
         data = {'action': action}
-        m = np.random.rand(
+        m = np.zeros((
             self.config.feature_num,
             self.config.asset_num,
             self.config.window_size
-        ).tolist()
+        )).tolist()
 
-        pv = np.random.rand(
-            self.config.feature_num,
-            self.config.asset_num,
-            self.config.window_size
-        ).tolist()
+        pv = np.zeros((
+            self.config.asset_num
+        )).tolist()
 
         assets = ["".join(choices(ascii_lowercase, k=3)) for _ in range(self.config.asset_num)]
 
@@ -99,17 +96,15 @@ class Client(object):
 
     def env_state(self, instance_id):
         route = '/envs/{}/state/'.format(instance_id)
-        m = np.random.rand(
+        m = np.zeros((
             self.config.feature_num,
             self.config.asset_num,
             self.config.window_size
-        ).tolist()
+        )).tolist()
 
-        pv = np.random.rand(
-            self.config.feature_num,
-            self.config.asset_num,
-            self.config.window_size
-        ).tolist()
+        pv = np.zeros((
+            self.config.asset_num
+        )).tolist()
 
         assets = ["".join(choices(ascii_lowercase, k=3)) for _ in range(self.config.asset_num)]
 
