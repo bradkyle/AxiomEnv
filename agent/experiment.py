@@ -510,7 +510,11 @@ def train():
         while True:
           session.run(enqueue_ops)
 
-
+# TODO specify feature constraints: asset_num, window_size, features etc.
+# TODO train domain randomization with constraints changing commission, quote_asset, exchange, fake data etc.
+# TODO train live randomized 
+# TODO train live
+# TODO save and deploy
 
 # TODO run env step
 def test(action_set, level_names):

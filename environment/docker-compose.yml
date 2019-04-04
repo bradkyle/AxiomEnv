@@ -33,10 +33,10 @@ services:
   # binance_eth_features_ingress:
   #   build:
   #     context: ./
-  #     dockerfile: ./ingress/Dockerfile-ingress
+  #     dockerfile: ./Dockerfile-ingress
   #     args:
   #       buildno: 1
-  #   command: python ./environment/ingress.py --quote ETH
+  #   command: python ./ingress.py --quote ETH
   #   depends_on: 
   #     - rethinkdb
   #     - rethinkdb_setup

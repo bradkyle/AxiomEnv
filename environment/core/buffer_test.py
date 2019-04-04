@@ -12,7 +12,7 @@ DC = EnvConfig(
     quote_asset='BTC',
     commission=0.075,
     feature_num=3,
-    asset_num=5,
+    asset_num=1,
     window_size=10,
     selection_period=90,
     selection_method='s2vol',
@@ -21,8 +21,9 @@ DC = EnvConfig(
     step_rate=3
 )
 
+
 @pytest.mark.asyncio
-async def test_get_frame():
+async def test_get_frame_complex():
     buffer = Buffer()
     last_time = await buffer.get_last_time()
 
@@ -35,10 +36,10 @@ async def test_get_frame():
     f = await buffer.get_frame_complex(
         start, 
         last_time,
-        assets
+        ['ETH']
     )
 
-    print(f)
+    print(f[['ask_price_0', 'ask_quantity_0', 'ask_price_1', 'ask_quantity_1', 'close']].to_string())
 
 
 

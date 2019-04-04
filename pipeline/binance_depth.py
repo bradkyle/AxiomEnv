@@ -17,20 +17,10 @@ class FeaturesIngress(Ingress):
         self,
         quote_asset='BTC',
         levels=20,
-        interval='1m',
-        r_host=db_const.DB_HOST,
-        r_port=db_const.DB_PORT,
-        r_user=db_const.DB_USER,
-        r_pass=db_const.DB_PASS,
-        r_db=db_const.DB_NAME
+        interval='1m'
     ):
         Ingress.__init__(
-            self,
-            r_host=r_host,
-            r_port=r_port,
-            r_user=r_user,
-            r_pass=r_pass,
-            r_db=r_db
+            self
         )
         
         self.ASKS = {};
@@ -126,64 +116,63 @@ class FeaturesIngress(Ingress):
 
         try:
             # TODO check depth not empty
-            if d['s'] in self.ASKS:
-                kline = {
-                    fields.ID: [k['s'], k['t']],
-                    fields.EVENT_ID: ['binance', 'feature', d['s'], d['E']],
-                    fields.EVENT_TIME: d['E'],                    
-                    fields.START_TIME: k['t'],
-                    fields.END_TIME: k['T'],
-                    fields.EPOCH_START_TIME: r.epoch_time(k['t']/1000),
-                    fields.EPOCH_END_TIME: r.epoch_time(k['T']/1000),
-                    fields.EPOCH_EVENT_TIME: r.epoch_time(d['E']/1000),
-                    fields.SYMBOL: k['s'],
-                    fields.BASE_ASSET: self.derive_base_asset(self.quote_asset,k['s']),
-                    fields.QUOTE_ASSET: self.quote_asset,
-                    fields.INTERVAL: k['i'],
-                    fields.OPEN: float(k['o']),
-                    fields.CLOSE: float(k['c']),
-                    fields.HIGH: float(k['h']),
-                    fields.LOW: float(k['l']),
-                    fields.VOLUME: float(k['v']),
-                    fields.TRADES: k['n'],
-                    fields.QUOTE_ASSET_VOLUME: float(k['q']),
-                    fields.TAKER_BUY_BASE_ASSET_VOLUME: float(k['V']),
-                    fields.TAKER_BUY_QUOTE_ASSET_VOLUME: float(k['Q']),
-                    fields.IS_FINAL: k['x']
-                };
+            kline = {
+                fields.ID: [k['s'], k['t']],
+                fields.EXCHANGE: 'binance',
+                fields.EVENT_ID: ['binance', 'feature', d['s'], d['E']],
+                fields.EVENT_TIME: d['E'],                    
+                fields.START_TIME: k['t'],
+                fields.END_TIME: k['T'],
+                fields.EPOCH_START_TIME: r.epoch_time(k['t']/1000),
+                fields.EPOCH_END_TIME: r.epoch_time(k['T']/1000),
+                fields.EPOCH_EVENT_TIME: r.epoch_time(d['E']/1000),
+                fields.SYMBOL: k['s'],
+                fields.BASE_ASSET: self.derive_base_asset(self.quote_asset,k['s']),
+                fields.QUOTE_ASSET: self.quote_asset,
+                fields.INTERVAL: k['i'],
+                fields.OPEN: float(k['o']),
+                fields.CLOSE: float(k['c']),
+                fields.HIGH: float(k['h']),
+                fields.LOW: float(k['l']),
+                fields.VOLUME: float(k['v']),
+                fields.TRADES: k['n'],
+                fields.QUOTE_ASSET_VOLUME: float(k['q']),
+                fields.TAKER_BUY_BASE_ASSET_VOLUME: float(k['V']),
+                fields.TAKER_BUY_QUOTE_ASSET_VOLUME: float(k['Q']),
+                fields.IS_FINAL: k['x']
+            };
 
-                flat_depth = self.get_flat_depth(k['s'])
+            flat_depth = self.get_flat_depth(k['s'])
 
-                kline.update(flat_depth)
+            kline.update(flat_depth)
 
-                r.table(db_const.FEATURES_TABLE).insert(
-                    kline,
-                    conflict="replace"
-                ).run(self.conn)
+            r.table(db_const.FEATURES_TABLE).insert(
+                kline,
+                conflict="replace"
+            ).run(self.conn)
 
-                price = {
-                    fields.ID:k['s'],
-                    fields.EVENT_ID: ['binance', 'price', d['s'], d['E']],
-                    fields.EVENT_TIME: d['E'],
-                    fields.EPOCH_EVENT_TIME: r.epoch_time(d['E']/1000),
-                    fields.QUOTE_ASSET: self.quote_asset,
-                    fields.BASE_ASSET: self.derive_base_asset(self.quote_asset,k['s']),
-                    fields.SYMBOL: k['s'],
-                    fields.PRICE: float(k['c'])
-                }
-                r.table(db_const.PRICES_TABLE).insert(
-                    price,
-                    conflict="replace"
-                ).run(self.conn)
+            price = {
+                fields.ID:k['s'],
+                fields.EVENT_ID: ['binance', 'price', d['s'], d['E']],
+                fields.EVENT_TIME: d['E'],
+                fields.EPOCH_EVENT_TIME: r.epoch_time(d['E']/1000),
+                fields.QUOTE_ASSET: self.quote_asset,
+                fields.BASE_ASSET: self.derive_base_asset(self.quote_asset,k['s']),
+                fields.SYMBOL: k['s'],
+                fields.PRICE: float(k['c'])
+            }
+            r.table(db_const.PRICES_TABLE).insert(
+                price,
+                conflict="replace"
+            ).run(self.conn)
 
-                print("Inserted "+k['s'])
         except Exception as e:
             print(e)
 
     def derive_flat_depth(self, data):
         flat_depth = {}
-        bids = [{'bid_price_'+str(i):float(d[0]), 'bid_quantity_'+str(i):float(d[1])} for (i, d) in enumerate(data['bids'])]
-        asks = [{'ask_price_'+str(i):float(d[0]), 'ask_quantity_'+str(i):float(d[1])} for (i, d) in enumerate(data['asks'])]
+        bids = [{'bid_price_'+str(i):float(d[0]), 'bid_quantity_'+str(i):(float(d[1])*float(d[0]))} for (i, d) in enumerate(data['bids'])]
+        asks = [{'ask_price_'+str(i):float(d[0]), 'ask_quantity_'+str(i):(float(d[1])*float(d[0]))} for (i, d) in enumerate(data['asks'])]
         for bid, ask in zip(bids, asks):
             flat_depth.update(bid)
             flat_depth.update(ask)

@@ -40,6 +40,40 @@ class Buffer():
             'startTime'
         ]
 
+        self.whitelisted_features = [
+            'close',
+            'open',
+            'high',
+            'low',
+            'ask_price_0',
+            'ask_price_1',
+            'ask_price_2',
+            'ask_price_3',
+            'ask_price_4',
+            'ask_quantity_0',
+            'ask_quantity_1',
+            'ask_quantity_2',
+            'ask_quantity_3',
+            'ask_quantity_4',
+            'bid_price_0',
+            'bid_price_1',
+            'bid_price_2',
+            'bid_price_3',
+            'bid_price_4',
+            'bid_quantity_0',
+            'bid_quantity_1',
+            'bid_quantity_2',
+            'bid_quantity_3',
+            'bid_quantity_4',
+            'trades',
+            'volume'
+        ]
+
+        self.whitelisted_columns = [
+            'baseAsset',
+            'startTime'            
+        ] + self.whitelisted_features
+
     def convert_df_to_list(self, df):
         xr = df.to_xarray()
 
@@ -95,14 +129,7 @@ class Buffer():
             index='epochEventTime'
         )\
         .pluck(
-            'baseAsset',
-            'startTime',
-            'close',
-            'open',
-            'high',
-            'low',
-            'asks',
-            'bids'
+            self.whitelisted_columns
         )\
         .filter(lambda doc:
             r.expr(assets)
@@ -123,8 +150,6 @@ class Buffer():
             names=self.index_columns
         )    
         f = f.reindex(ind)
-
-        f = json_normalize(f['asks'])
         
         # Fill non existent values
         f=f.fillna(axis=0, method="ffill")\
@@ -452,13 +477,13 @@ class Buffer():
         feature_num
     ):
         if feature_num == 1:
-            return []
+            return ['close']
         elif feature_num == 2:
             pass
         elif feature_num == 3:
-            pass
+            return ['close', 'high', 'low']
         elif feature_num == 4:
-            pass
+            return ['close', 'high', 'low', 'open']
         elif feature_num == 5:
             pass
         elif feature_num == 6:
